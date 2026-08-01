@@ -1,153 +1,136 @@
 ---
 name: flow-dev-company
-description: Orquestador de desarrollo de punta a punta. Arranca con un objetivo ("quiero desarrollar un chatbot"), enriquece el spec con preguntas y mejoras de senior, planifica y ejecuta con una flota de agentes en paralelo — un cerebro caro planea y revisa (playbook de asesor empacado), manos baratas ejecutan en worktrees aislados, cada tarea al tier correcto, mostrando los agentes trabajando. Autocontenido: no depende de ningún skill externo. Usa cuando el usuario quiera construir algo desde cero o una feature grande de forma orquestada.
+description: End-to-end development orchestrator. Takes a goal ("I want to build a chatbot"), enriches it with senior-level questions, then plans and executes with a fleet of parallel agents — an expensive brain plans and reviews, cheap hands execute in isolated worktrees, each task at the right tier, with the fleet's progress visible. Self-contained; depends on no external skill. Use when the user wants to build something from scratch or ship a large feature in an orchestrated way.
 ---
 
-# flow-dev-company — Orquestador con flota de agentes (autocontenido)
+# flow-dev-company
 
-Eres el **ORQUESTADOR**. Pones la puerta de entrada, activas el cerebro asesor que
-planea y revisa, despachas la flota que ejecuta, muestras el progreso y sostienes los
-gates humanos. Tú no escribes el producto: lo hace la flota.
+You are the **ORCHESTRATOR**. You hold the front door, run the advisor brain that plans and
+reviews, dispatch the fleet that executes, render progress, and hold the human gates.
+You do not write the product; the fleet does.
 
-## El cerebro está empacado aquí — no dependas de nada externo
-El rol de planificar y revisar (la economía "modelo caro entiende/juzga/especifica;
-modelos baratos ejecutan; el caro revisa el diff") vive en el **playbook del asesor**
-empacado en este mismo skill:
+## Progressive disclosure — load one reference per phase
 
-```
-<SKILL_DIR>/references/advisor.md                 ← el cerebro (planear + revisar)
-<SKILL_DIR>/references/audit-playbook.md          ← categorías de auditoría (repo existente)
-<SKILL_DIR>/references/plan-template.md            ← formato de plan autocontenido
-<SKILL_DIR>/references/closing-the-loop.md         ← execute / review / reconcile
-<SKILL_DIR>/references/orchestration-patterns.md   ← olas, roster de agentes, estado, gates
-```
+Everything is bundled here. `<SKILL_DIR>` is this skill's directory. Read only what the
+current phase needs; do not preload all five.
 
-**Lee `references/orchestration-patterns.md`** para las mecánicas de orquestación: cómo derivar
-**olas (waves)** del DAG, el **roster de agentes especializados** (cada uno con rol/alcance/
-anti-patrones/tier), el **archivo de estado** `.flow/state.json` (resume + panel + circuit
-breaker) y los **gates de review en capas**.
+| Phase | Read |
+|---|---|
+| Planning (2) | `references/planning.md` → then `audit-playbook.md` + `plan-template.md` as it directs |
+| Execution (3) | `references/execution.md` |
+| Review (3, 5) | `references/review.md` |
+| Always in effect | `references/token-budget.md` — read once at start, it is short |
 
-`<SKILL_DIR>` es el directorio de este skill. **Lee `references/advisor.md` y síguelo**
-para todo lo que sea planear o revisar — no intentes invocar un skill `improve` externo;
-está empacado adentro. Cuando delegues a un subagente, pásale la **ruta absoluta** al
-archivo del playbook (los subagentes no heredan tu contexto, pero sí pueden leer archivos).
+Deterministic plumbing lives in `scripts/flow.sh` (waves, state, panel, ledger). Call it;
+do not recompute a DAG or re-render a table in prose.
 
-## Tiering de modelos
-| Tier | Modelo | Para qué |
-|------|--------|----------|
-| Barato | `haiku` | Ejecutar planes ya especificados, boilerplate, docs, formatear |
-| Medio | `sonnet` | Ejecutar planes con lógica no trivial |
-| Caro | `opus` | El cerebro asesor (planear, especificar, revisar), síntesis, decisiones |
+When you delegate, pass subagents the **absolute path** to the file they need. They do not
+inherit your context, but they can read files — far cheaper than pasting.
 
-Regla: el juicio (planear/revisar con el playbook) va en `opus`; la ejecución de planes
-ya escritos va en `haiku`/`sonnet`. Nunca al revés.
+## Two rules that shape everything
+
+**Language.** Every artifact is English: this skill, agent prompts, plans, state, commits.
+Only what the user reads directly is in their language. The tokenizer taxes other languages
+~1.5x for identical meaning.
+
+**Tiering.** Judgment (planning, specifying, high-risk review) runs on `opus`. Execution of
+already-written plans runs on `haiku`/`sonnet`. Never the reverse: an expensive model
+executing a finished plan is waste, and a cheap model writing the plan poisons everything
+downstream. Details and the risk router: `token-budget.md`, `review.md`.
 
 ---
 
-## FLUJO
+## FLOW
 
-### FASE 0 · Arranque
-- Si se invocó con un objetivo, tómalo. Si vacío, responde y **espera**: "¿Qué vamos a
-  desarrollar?". No asumas nada ni spawnees agentes todavía.
+### Phase 0 · Start
+If invoked with a goal, take it. If empty, reply and **wait**: "What are we building?"
+Assume nothing, spawn nothing yet.
 
-### FASE 1 · Enrich (preguntas + mejoras de senior — esto lo haces tú)
-Ante un pedido vago ("quiero un chatbot"):
+### Phase 1 · Enrich — questions and senior upgrades (you do this yourself)
+Given something vague ("I want a chatbot"):
 
-1. **Auto-especialízate en el dominio.** Trae lo que un senior de ese dominio sabe.
-   Ej. chatbot → gestión de contexto/memoria, streaming, moderación/seguridad, rate
-   limiting, elección de modelo, fallback, evals, costo por conversación, persistencia,
-   multi-idioma, tools/functions.
-2. **Propón mejoras que un buen desarrollo tendría** aunque no las pidió: auth, tests,
-   observabilidad, manejo de errores, CI, seguridad, i18n. Como opciones, no sermón.
-3. **Pregunta lo que falta** con `AskUserQuestion` (máx 4 por tanda, opciones concretas +
-   una recomendada). Cubre: alcance/MVP vs completo y no-goals; stack y dónde corre;
-   usuarios/escala/latencia/presupuesto; integraciones y datos sensibles; criterios de
-   "hecho".
-4. **Ofrece presets** para no decidir todo a mano: "MVP rápido" / "Producción robusta" /
-   "A medida".
+1. **Specialize into the domain.** Bring what a senior in that field knows — for a chatbot:
+   context/memory, streaming, moderation, rate limiting, model choice, fallback, evals, cost
+   per conversation, persistence, i18n, tool calling.
+2. **Propose what good work includes** even unasked: auth, tests, observability, error
+   handling, CI, security. As options, not a lecture.
+3. **Ask what is missing** with `AskUserQuestion` (max 4 per round, concrete options, one
+   recommended): MVP vs complete scope and non-goals; stack and where it runs;
+   users/scale/latency/budget; integrations and sensitive data; definition of done.
+4. **Offer presets**: "Fast MVP" / "Production-grade" / "Custom".
 
-Cierra con un **spec afinado** escrito, para confirmar con el usuario.
+Close with a written **refined spec** and confirm it with the user.
 
-### FASE 2 · Planificar (sigue el playbook del asesor)
-Lee `references/advisor.md` y actúa como el asesor (o despacha un subagente `opus` que lo
-siga, pasándole la ruta absoluta):
-- **Greenfield:** modo `plan` del playbook — descompón el spec afinado en **una pieza
-  independiente por plan** para poder paralelizar. Plan #1 suele ser "baseline de
-  verificación" (scaffold + test que corre).
-- **Repo existente / feature grande:** workflow completo del playbook (Recon → Audit
-  paralelo → tabla priorizada → planes).
-- Salida: archivos en `plans/` + `plans/README.md` con **orden y dependencias** = tu DAG.
+### Phase 2 · Plan
+Read `references/planning.md` and act as the advisor (or dispatch an `opus` subagent that
+follows it, passing the absolute path).
 
-### 🚦 GATE A · Aprobación humana del plan
-- Muestra los planes y el orden de dependencias; que el usuario apruebe con
-  `AskUserQuestion` o `ExitPlanMode`. **No despaches la flota sin esto.**
+- **Greenfield**: decompose the refined spec into **one independent piece per plan** so
+  execution parallelizes. Plan #1 is usually the verification baseline.
+- **Existing repo / large feature**: full workflow — Recon → parallel Audit → prioritized
+  table → plans.
 
-### FASE 3 · Ejecutar la flota (olas, roster, worktrees)
-Deriva las **olas** del DAG de `plans/README.md` por capas (ver `orchestration-patterns.md` §1):
-ola 1 = planes sin dependencias; ola N = planes cuyas dependencias ya están verdes. Inicializa
-`.flow/state.json` y actualízalo en cada transición.
+Output: files in `plans/` plus `plans/README.md` with order and dependencies. That is your DAG.
 
-- Por cada plan de la ola actual, asigna su **rol del roster** (backend-dev, frontend-dev,
-  data-dev, qa, docs… §2) y despacha un **ejecutor** con la tool `Agent`, `isolation: "worktree"`,
-  en **background** (`run_in_background: true`), al **tier** del rol. El prompt incluye: rol +
-  alcance + anti-patrones + el plan autocontenido + contrato de salida (`DONE|<ruta>` o JSON).
-- Corre **toda la ola en paralelo** (mismo mensaje). **Barrier entre olas:** no arranques la
-  siguiente hasta que la actual esté verde.
-- Cuando un ejecutor termina, el **cerebro (opus) revisa su diff** con los **gates en capas**
-  (§4: spec-compliance → correctness → security → tests/quality) + verificación adversarial.
-  Trata el diff como no confiable hasta revisarlo.
-- Un ejecutor que falla no tumba la ola: márcalo `blocked` en el estado, sigue con sus hermanos,
-  reencólalo (**circuit breaker: 3 intentos** → escalar a gate humano).
+### GATE A · Human plan approval
+Show the plans and the dependency order. The user approves via `AskUserQuestion` or
+`ExitPlanMode`. **Do not dispatch the fleet without it.** Record with `flow.sh gate A approved`.
 
-### FASE 4 · Verify (código, no agente)
-- Corre los **done-criteria** que cada plan trae (build/typecheck/lint/test). Determinista
-  y bloqueante. Falla → reencolar a ejecución.
+### Phase 3 · Run the fleet
+Read `references/execution.md`. Register plans and layer the waves:
 
-### FASE 5 · Review final del branch
-- Con todo integrado, corre el modo `branch` del playbook: audita solo los cambios del
-  branch, separando `introduced` de `pre-existing`. Hallazgos que sobreviven → corregir.
+```
+flow.sh init <run-id> "<objective>"
+flow.sh add <id> <role> <tier> [deps]
+flow.sh waves          # Kahn layering; exits 2 on a dependency cycle
+flow.sh ready          # what is dispatchable right now
+```
 
-### 🚦 GATE B · Revisión final humana
-- Muestra resultado vs criterios de la Fase 0. El usuario decide: merge / iterar.
+- Dispatch every ready plan of the current wave **in one message**, `isolation: "worktree"`,
+  `run_in_background: true`, at the role's tier. Batch trivial same-role plans.
+- **Barrier between waves**: `flow.sh wave-done` before `flow.sh advance`.
+- When an executor returns, the brain reviews its diff through the **risk router** in
+  `references/review.md` — most diffs never need `opus`. Treat every diff as untrusted
+  until reviewed.
+- A failing executor does not sink its wave: mark it blocked, continue with its siblings,
+  requeue it. `flow.sh set` enforces the 3-attempt circuit breaker and escalates to a
+  human gate.
 
-### FASE 6 · Handoff
-- Agente `haiku`: changelog, notas de PR, resumen de decisiones.
-- Ofrece guardar el spec afinado y `plans/` para re-correr.
+### Phase 4 · Verify (code, not an agent)
+Run each plan's done criteria (build/typecheck/lint/test). Deterministic and blocking.
+A failure requeues to execution.
+
+### Phase 5 · Final branch review
+With everything integrated, run the branch review in `references/review.md`: audit only the
+branch's changes, separating `introduced` from `pre-existing`. Surviving findings get fixed.
+
+### GATE B · Human final review
+Show the result against Phase 0's criteria, plus `flow.sh report` for the token ledger.
+The user decides: merge or iterate.
+
+### Phase 6 · Handoff
+A `haiku` agent writes the changelog, PR notes, and decision summary. Offer to keep the
+refined spec and `plans/` so the run can be replayed.
 
 ---
 
-## Mostrar la flota trabajando
-Renderiza el panel leyendo `.flow/state.json` y actualízalo cada vez que un ejecutor reporta:
+## Showing the fleet
 
-```
-🟢 FLOTA · Fase: Ejecución · Ola 2/3
-┌──────────────────────────────┬──────────────┬─────────┬───────────┬──────────┐
-│ Plan                         │ Rol          │ Tier    │ Estado    │ Deps     │
-├──────────────────────────────┼──────────────┼─────────┼───────────┼──────────┤
-│ 001-baseline-verif           │ data-dev     │ haiku   │ ✅ green  │ —        │
-│ 002-api-auth                 │ backend-dev  │ sonnet  │ 🔎 review │ 001      │
-│ 003-chat-core-streaming      │ backend-dev  │ sonnet  │ 🟡 corre  │ 001      │
-│ 004-ui-widget                │ frontend-dev │ sonnet  │ ⏸ espera  │ 003      │
-└──────────────────────────────┴──────────────┴─────────┴───────────┴──────────┘
-Ola 2: 1/2 · barrier: 004 (ola 3) espera a 003.
-```
+Render the panel with `flow.sh panel`. It reads the state file, so it never drifts from
+reality and costs no output tokens to compute — never hand-write the table.
 
-- Lanza los ejecutores de un lote en el **mismo mensaje** (llamadas paralelas) en background.
-- Cuando el harness te notifique que uno terminó, actualiza el panel y avanza los planes
-  cuya dependencia ya esté verde.
-- Si `TaskCreate`/`TaskList` están disponibles, refleja cada plan como tarea también.
-- Nota honesta: el panel refresca **por turnos** (conforme los agentes reportan), no es un
-  dashboard en tiempo real.
+Honest note: the panel refreshes **per turn**, as agents report. It is not a live dashboard.
+If `TaskCreate`/`TaskList` exist, mirror each plan as a task too.
 
----
+## Principles that do not bend
 
-## Principios que no debes romper
-1. **El cerebro está empacado** (`references/advisor.md`). Síguelo; no busques skill externo.
-2. Gates humanos (A y B) obligatorios.
-3. Paraleliza por **olas** derivadas del DAG; barrier entre olas. El estado vive en
-   `.flow/state.json` (resume + panel + circuit breaker de 3 intentos).
-4. Verify = done-criteria del plan, código determinista, no agente.
-5. Ejecución al tier barato; el cerebro al caro. Reporta tier/costo cuando ayude.
-6. El ciclo ejecutar↔verify converge con tope de intentos.
-7. El asesor **nunca edita código directo**; solo escribe planes y revisa diffs. La flota
-   ejecuta en worktrees aislados. Nunca mergees/pushees sin el Gate B.
+1. The brain is bundled (`references/planning.md`, `references/review.md`). Follow it; never
+   hunt for an external skill.
+2. Human gates A and B are mandatory.
+3. Parallelize by **waves** derived from the DAG, with a barrier between them. State lives in
+   `.flow/state.json`; the circuit breaker stops at 3 attempts.
+4. Verify means the plan's done criteria, run as deterministic code — never an agent's opinion.
+5. Execution goes to the cheap tier, judgment to the expensive one. Report the ledger when it helps.
+6. The execute↔verify loop converges under an attempt ceiling.
+7. The advisor **never edits code directly** — it writes plans and reviews diffs. The fleet
+   executes in isolated worktrees. Never merge or push without Gate B.
