@@ -19,24 +19,32 @@ Self-contained: **nothing else to install.**
 ## How it works
 
 ```
-0 Intake → 1 Enrich → 2 Plan → 🚦GATE A → 3 Execute (waves) → 4 Verify → 5 Review → 🚦GATE B → 6 Handoff
-           (questions  (advisor   human    (parallel fleet     (code,     (risk-routed  human   (docs)
-            + upgrades) brain)              in worktrees)      not agent)  gates)
+0 Start/Resume → 1 Enrich → 2 Plan → 🚦GATE A → 3 Execute (waves) → 4 Verify → 5 Review → 🚦GATE B → 6 Handoff
+                 (questions  (advisor   human    (parallel fleet,    (tests +   (branch   human   (docs)
+                  → SPEC.md)  brain)             integrated per     smoke run) review)
+                                                  wave)
 ```
 
+- **Resume** — if a run is already in flight (`.flow/state.json`), it picks up where it left off.
 - **Enrich** — specializes into your domain, proposes what good engineering includes even if
   unasked, and asks the missing questions with options + presets (MVP / Production / Custom).
+  The result is written to `plans/SPEC.md`, including the smoke scenario that proves it works.
 - **Plan** — an advisor brain (expensive tier) writes self-contained plans plus their
   dependency graph (DAG).
 - **🚦 Gate A** — you approve the plan before any budget goes to the fleet.
 - **Wave execution** — the DAG is layered into *waves* (topological, via Kahn); each wave runs
   in parallel in isolated worktrees, every agent with its **role** (backend/frontend/data/qa/
-  docs…) and **tier**. Barrier between waves, 3-attempt circuit breaker per plan.
-- **Verify** — the plan's done criteria (build/test/lint), deterministic code, blocking.
+  docs…) and **tier**. Approved work is merged into an **integration branch**
+  (`flow/<run>/main`, in its own worktree — your checkout is never touched), and the next wave
+  branches from it, so dependent plans build on real code. Barrier between waves, 3-attempt
+  circuit breaker per plan, blocked plans cascade-skip their dependents instead of stalling.
+- **Verify** — on the integrated result: every plan's done criteria (build/test/lint) **plus a
+  smoke run** that boots the product and drives its main flow. Deterministic, blocking.
 - **Risk-routed review** — a router decides the review budget per diff: high-risk changes
   (auth, payments, crypto, migrations, new deps, large diffs) get the full four-layer gauntlet
   on the expensive tier; everything else gets spec-compliance + correctness on a cheaper one.
-- **🚦 Gate B** — final human review before merge, with a token ledger for the run.
+- **🚦 Gate B** — final human review before you merge the integration branch, with every
+  blocked/skipped plan listed and a token ledger for the run.
 
 Details in [`SKILL.md`](SKILL.md) and the `references/` files it loads per phase.
 
@@ -45,7 +53,10 @@ Details in [`SKILL.md`](SKILL.md) and the `references/` files it loads per phase
 The fleet is only worth running if it does not burn the budget. This skill is built around
 where the tokens actually go — not where it is easiest to optimize:
 
-| Cost center | Share of a run | Lever |
+Estimated distribution (a design heuristic, not a measurement — `flow.sh report` gives you
+the real numbers for your runs):
+
+| Cost center | Est. share | Lever |
 |---|---|---|
 | Reviewing diffs on the expensive tier | ~45% | Risk router — most diffs never need it |
 | Executors exploring cold repos | ~25% | Recon facts inlined into every plan |
@@ -56,7 +67,8 @@ where the tokens actually go — not where it is easiest to optimize:
 Plus: everything internal is written in **English** (non-English text costs ~1.5x for the same
 meaning), prompt prefixes are **cache-stable per role**, trivial plans are **batched** into one
 agent, all plumbing (waves, state, panel, ledger) is **deterministic bash**, and a `budget`
-ledger in `.flow/state.json` reports actuals at Gate B rather than estimates.
+ledger in `.flow/state.json` reports actuals at Gate B — unreported spawns are listed, never
+guessed.
 
 Compression is applied narrowly — to agent-to-agent reports, never to plans, code, or anything
 you read. Published benchmarks put "caveman"-style compression at 8.5–21% on real coding tasks
@@ -86,8 +98,14 @@ Restart your Claude Code session (skills load at startup), then:
 /flow-dev-company I want to build a chatbot
 ```
 
-Or invoke it empty and it will ask what to build. Requires `jq` for the state scripts; without
-it the orchestrator falls back to maintaining state itself and says so.
+Or invoke it empty and it will ask what to build. Requires `git` and `jq`; without `jq` the
+orchestrator falls back to maintaining state itself and says so.
+
+Test the plumbing:
+
+```bash
+~/.claude/skills/flow-dev-company/scripts/test-flow.sh   # 40 checks, throwaway git repo
+```
 
 ## Structure
 
@@ -102,7 +120,8 @@ flow-dev-company/
     audit-playbook.md          # audit categories (existing repos)
     plan-template.md           # self-contained plan format
   scripts/
-    flow.sh                    # deterministic plumbing: waves, state, panel, ledger
+    flow.sh                    # deterministic plumbing: waves, state, gates, integration, panel, ledger
+    test-flow.sh               # regression suite for flow.sh
 ```
 
 ## Credits

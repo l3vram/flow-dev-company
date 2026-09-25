@@ -64,9 +64,9 @@ in scope. *Undocumented* deviations are review failures.
 
 | Verdict | When | Action |
 |---|---|---|
-| **APPROVE** | Criteria pass, scope clean, quality holds | Mark green in state + index. Report diff summary, worktree path, branch, NOTES. **Merging is the user's call — never merge, push, or commit to their branch.** |
-| **REVISE** | Fixable gaps | `SendMessage` to the same executor with specific, actionable feedback ("criterion 3 fails: X; `api.ts:90` swallows the error — use the Result pattern per the plan"). **Max 2 revision rounds**, then BLOCK. |
-| **BLOCK** | STOP condition hit, scope violated unrecoverably, or revisions exhausted | Mark blocked with the reason. Refine or rewrite the plan with what was learned. Tell the user what happened and what changed. |
+| **APPROVE** | Criteria pass, scope clean, quality holds | `flow.sh set <id> green && flow.sh integrate <id>`; update the index. A conflict (exit 6) returns the plan to review — the executor resolves it on its branch. **Merging into the user's branch is their call at Gate B — never merge, push, or commit there.** |
+| **REVISE** | Fixable gaps | `flow.sh revise <id>`, then `SendMessage` to the same executor with specific, actionable feedback ("criterion 3 fails: X; `api.ts:90` swallows the error — use the Result pattern per the plan"). **Max 2 revision rounds** — the script blocks the plan on the third. |
+| **BLOCK** | STOP condition hit, scope violated unrecoverably, or revisions exhausted | `flow.sh set <id> blocked "<reason>"`. Refine or rewrite the plan with what was learned and requeue (`set <id> pending`), or — after the human gate — `flow.sh skip-dependents <id>`. Tell the user what happened and what changed. |
 
 Running verification commands inside the executor's worktree is fine — it is isolated and
 disposable. The no-mutating-commands rule protects the user's working tree, not the worktree.
@@ -75,9 +75,11 @@ disposable. The no-mutating-commands rule protects the user's working tree, not 
 
 ## 4. Branch review (Phase 5)
 
-With everything integrated, audit only the branch's changes: files changed since the
-merge-base with the default branch (`git diff --name-only $(git merge-base origin/<default> HEAD)..HEAD`)
-plus their direct importers and callers. Light recon, all categories, usually no subagents.
+Run in the integration worktree after Phase 4 passed. Audit only the run's changes: files
+changed on `flow/<run>/main` since its base
+(`git -C .flow/integration diff --name-only <base>...HEAD`) plus their direct importers and
+callers. Light recon, all categories, usually no subagents. For a review outside a flow run,
+use the merge-base with the default branch instead.
 
 **Tag every finding `introduced` or `pre-existing`** and separate them in the table. Do not
 blame the branch for legacy debt — but do surface what it is building on top of.
@@ -97,7 +99,11 @@ Process what happened since the last session. Read `plans/README.md` and each pl
 - **BLOCKED** — read the reason, investigate the obstacle, then either rewrite the plan
   around it (new number if the approach changed fundamentally, in-place refresh otherwise)
   or mark REJECTED with one line of rationale.
-- **IN PROGRESS (stale)** — an executor probably died mid-run. Flag it; check the worktree.
+- **IN PROGRESS (stale)** — an executor probably died mid-run (state says `running` but no
+  agent is alive). Check its branch for commits; `set <id> pending` to requeue, which costs
+  one attempt when re-dispatched.
+- **green but not integrated** — run `flow.sh integrate <id>` before anything else; the next
+  wave depends on it.
 - **TODO** — run the drift check. If drifted, re-verify the finding still exists (it may
   have been fixed in passing), then refresh excerpts and the `Planned at` SHA. If the
   finding is gone, mark REJECTED ("fixed independently").

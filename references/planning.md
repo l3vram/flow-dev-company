@@ -41,12 +41,19 @@ whether the executor succeeds. This is also why plans are the one artifact never
 
 When Phase 2 hands you a refined spec for something that does not exist:
 
-- Treat the refined spec as the source of truth. It already carries stack, scope, non-goals,
-  and done criteria negotiated with the user during Enrich.
+- Treat `plans/SPEC.md` as the source of truth. It already carries stack, scope, non-goals,
+  done criteria, and the smoke scenario negotiated with the user during Enrich.
+- If the directory is not a git repository with a commit, `git init` and commit `SPEC.md`.
+  This is the one commit the advisor makes: there is no user work to protect, and worktree
+  isolation cannot start without it.
 - Decompose into **one independent piece per plan** so execution parallelizes. Pieces with no
   dependency between them get no edge, and land in the same wave.
-- Plan #1 is almost always **"establish a verification baseline"** — scaffold plus a test that
-  actually runs. Everything else depends on it. Without it, no plan has real done criteria.
+- Plan #1 is almost always **"establish a verification baseline"** — scaffold, a test that
+  actually runs, and a **smoke command** that boots the product and exercises the smoke
+  scenario (a stub is fine at first; later plans make it pass for real). Everything else
+  depends on it. Without it, no plan has real done criteria and Phase 4 cannot run.
+- Split along file ownership. Two plans in the same wave that edit the same file will
+  conflict at integration — give the shared file to one plan, or add an edge between them.
 - Each plan follows `plan-template.md` and is fully self-contained.
 
 Skip straight to "Write the plans" below.

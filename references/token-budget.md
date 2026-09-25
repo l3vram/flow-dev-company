@@ -1,7 +1,8 @@
 # Token Budget — where the money actually goes
 
-Measured baseline for a typical fleet run. Optimize in this order; the skill text is
-the smallest line item, not the biggest.
+**Estimated** distribution for a typical fleet run — a design heuristic, not a measurement.
+Replace it with your own ledger (`flow.sh report`) once you have real runs. The ordering is
+what matters: the skill text is the smallest line item, not the biggest.
 
 | Cost center | Share | Lever |
 |---|---|---|
@@ -66,6 +67,8 @@ A plan whose whole content is "add three config keys" does not deserve its own s
 - Group trivial same-role plans (docs, config, boilerplate) into **one** `haiku` agent with
   a multi-plan prompt, as long as they share a wave and touch disjoint files.
 - Keep separate spawns when plans touch overlapping files, differ in role, or carry real risk.
+- A batched agent still creates one branch per plan (`flow/<run>/<id>`) so each is reviewed
+  and integrated on its own.
 - Ceiling: 4 plans per batched agent. Beyond that the prompt itself gets expensive and the
   agent starts losing track of which plan it is on.
 
@@ -99,6 +102,7 @@ Reordering these blocks for readability defeats the cache — keep the order.
 ```
 
 Token counts come from what the harness reports per agent; when a number is unavailable,
-record `null` rather than an estimate. A guessed ledger is worse than no ledger — it makes
+record `null` (`flow.sh budget <id> null …`) — the spawn is listed as unreported, never
+estimated. A guessed ledger is worse than no ledger — it makes
 the next optimization decision on fiction. Report actuals at Gate B, flag any plan that
 consumed disproportionately, and say plainly which figures were unavailable.
