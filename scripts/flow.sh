@@ -17,7 +17,9 @@
 #   flow.sh skip-dependents <id>            mark every transitive dependent of <id> skipped
 #   flow.sh wave-done                       exit 0 if every plan in the current wave is settled
 #   flow.sh advance                         move to next wave (only if current is settled)
-#   flow.sh budget <id> <tokens|null> <tier> <phase>   append to the ledger
+#   flow.sh smoke <pass|fail|substituted> <detail>     record the Phase 4 smoke result
+#   flow.sh budget <id> <tokens|null> <tier> <phase> [spawn|inline]
+#                                           append to the ledger; only `spawn` counts as an agent
 #   flow.sh panel                           render the fleet table
 #   flow.sh report                          render the budget ledger
 #
@@ -57,7 +59,8 @@ cmd_init() {
     gates: { A: "pending", B: "pending" },
     integration: { branch: ("flow/" + $run + "/main"), base: null, worktree: null },
     waves: [], current_wave: 0, plans: [],
-    budget: { by_phase: {}, by_tier: {}, by_plan: {}, spawns: 0, unreported: [], notes: "" }
+    smoke: null,
+    budget: { by_phase: {}, by_tier: {}, by_plan: {}, spawns: 0, inline: 0, unreported: [], notes: "" }
   }' > "$STATE"
   echo "init $STATE"
 }
@@ -262,23 +265,36 @@ cmd_advance() {
   fi
 }
 
+# A ledger line is either a dispatched agent (`spawn`, the default) or work the orchestrator
+# did in its own context (`inline`, e.g. its own review). Only spawns count as agents.
 cmd_budget() {
   need_state
-  [ $# -ge 4 ] || die "usage: budget <id> <tokens|null> <tier> <phase>"
-  local id="$1" tok="$2" tier="$3" phase="$4"
+  [ $# -ge 4 ] || die "usage: budget <id> <tokens|null> <tier> <phase> [spawn|inline]"
+  local id="$1" tok="$2" tier="$3" phase="$4" kind="${5:-spawn}"
+  one_of "$kind" spawn inline || die "kind must be spawn or inline"
+  local counter=".budget.spawns"; [ "$kind" = "inline" ] && counter=".budget.inline"
   if [ "$tok" = "null" ] || [ -z "$tok" ]; then
-    write --arg id "$id" --arg ph "$phase" \
-      '.budget.unreported += [$id + "/" + $ph] | .budget.spawns += 1'
-    echo "budget: $id/$phase unreported by harness (recorded, not estimated)"
+    write --arg e "$id/$phase ($kind)" ".budget.unreported += [\$e] | $counter = (($counter // 0) + 1)"
+    echo "budget: $id/$phase ($kind) unreported by harness (recorded, not estimated)"
     return 0
   fi
   [[ "$tok" =~ ^[0-9]+$ ]] || die "tokens must be a non-negative integer or 'null'"
-  write --arg id "$id" --argjson t "$tok" --arg tier "$tier" --arg ph "$phase" '
-    .budget.by_plan[$id]  = ((.budget.by_plan[$id]  // 0) + $t)
-    | .budget.by_tier[$tier] = ((.budget.by_tier[$tier] // 0) + $t)
-    | .budget.by_phase[$ph]  = ((.budget.by_phase[$ph]  // 0) + $t)
-    | .budget.spawns += 1'
-  echo "budget +$tok ($tier/$phase) -> $id"
+  write --arg id "$id" --argjson t "$tok" --arg tier "$tier" --arg ph "$phase" "
+    .budget.by_plan[\$id]  = ((.budget.by_plan[\$id]  // 0) + \$t)
+    | .budget.by_tier[\$tier] = ((.budget.by_tier[\$tier] // 0) + \$t)
+    | .budget.by_phase[\$ph]  = ((.budget.by_phase[\$ph]  // 0) + \$t)
+    | $counter = (($counter // 0) + 1)"
+  echo "budget +$tok ($tier/$phase, $kind) -> $id"
+}
+
+# Phase 4's smoke result. `substituted` = the product could not be started here (no SDK,
+# device, or credentials) and a lower layer was exercised instead — Gate B must show it.
+cmd_smoke() {
+  need_state
+  one_of "${1:-}" pass fail substituted || die "smoke result must be pass, fail or substituted"
+  [ -n "${2:-}" ] || die "smoke needs a detail: the command run, or for 'substituted' why and what ran instead"
+  write --arg r "$1" --arg d "$2" '.smoke = { result: $r, detail: $d }'
+  echo "smoke -> $1 ($2)"
 }
 
 # `column` is not installed everywhere; fall back to fixed-width printf.
@@ -303,6 +319,7 @@ cmd_panel() {
   echo
   jq -r '"wave \(.current_wave + 1) members: \((.waves[.current_wave] // []) | join(", "))",
          "integration: \(.integration.branch)",
+         (if .smoke then "smoke: \(.smoke.result) — \(.smoke.detail)" else empty end),
          "objective: \(.objective // "-")",
          (.plans[] | select(.reason != null and (.status == "blocked" or .status == "skipped" or .status == "review"))
           | "  \(.id): \(.reason)")' "$STATE"
@@ -315,11 +332,12 @@ cmd_report() {
     "by phase:", (.budget.by_phase | to_entries[] | "  \(.key): \(.value)"),
     "by tier:",  (.budget.by_tier  | to_entries[] | "  \(.key): \(.value)"),
     "by plan:",  (.budget.by_plan  | to_entries[] | "  \(.key): \(.value)"),
-    "", "spawns: \(.budget.spawns)",
+    "", "agents spawned: \(.budget.spawns)   inline entries: \(.budget.inline // 0)",
     (if (.budget.unreported // []) | length > 0
      then "unreported by harness: \(.budget.unreported | join(", "))" else empty end),
     (if (.budget.notes // "") != "" then "notes: \(.budget.notes)" else empty end),
-    "", "(Unreported spawns are listed, never estimated.)"
+    (if .smoke then "smoke: \(.smoke.result) — \(.smoke.detail)" else empty end),
+    "", "(Unreported entries are listed, never estimated.)"
   ' "$STATE"
 }
 
@@ -338,7 +356,8 @@ case "${1:-}" in
   wave-done)        cmd_wave_done && echo "wave settled" || { echo "wave in progress"; exit 1; } ;;
   advance)          cmd_advance ;;
   budget)           shift; cmd_budget "$@" ;;
+  smoke)            shift; cmd_smoke "$@" ;;
   panel)            cmd_panel ;;
   report)           cmd_report ;;
-  *) sed -n '2,24p' "$0" >&2; exit 1 ;;
+  *) sed -n '2,27p' "$0" >&2; exit 1 ;;
 esac

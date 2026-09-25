@@ -85,7 +85,23 @@ eq "$(st a attempts)" "1" "revisions are not attempts"
 "$FLOW" budget a null sonnet execute >/dev/null
 "$FLOW" budget a 1200 sonnet execute >/dev/null
 eq "$(jq -c '[.budget.by_plan.a, .budget.unreported, .budget.spawns]' .flow/state.json)" \
-   '[1200,["a/execute"],2]' "ledger null handling"
+   '[1200,["a/execute (spawn)"],2]' "ledger null handling"
+
+# --- ledger: orchestrator's own work is not an agent spawn ------------------
+fresh l
+"$FLOW" add 156 dev sonnet >/dev/null
+"$FLOW" budget 156 119530 sonnet execute >/dev/null
+"$FLOW" budget 156 null opus review inline >/dev/null
+eq "$(jq -c '[.budget.spawns, .budget.inline, .budget.by_plan."156"]' .flow/state.json)" \
+   '[1,1,119530]' "one agent + one inline review = 1 spawn"
+"$FLOW" report | grep -q "agents spawned: 1" && ok || bad "report shows 1 agent"
+expect 1 "bad ledger kind rejected" -- "$FLOW" budget 156 10 opus review agent
+
+# --- smoke result recorded, substitutes visible -----------------------------
+expect 1 "smoke needs a detail"      -- "$FLOW" smoke substituted
+expect 1 "bad smoke result rejected" -- "$FLOW" smoke skipped "x"
+"$FLOW" smoke substituted "no Android SDK; ran ViewModel tests" >/dev/null
+"$FLOW" panel 2>/dev/null | grep -q "smoke: substituted" && ok || bad "panel shows substituted smoke"
 
 # --- panel works without `column` -------------------------------------------
 mkdir -p nocol; for b in jq awk sed paste mktemp mv dirname cat; do ln -sf "$(command -v $b)" nocol/; done

@@ -178,6 +178,8 @@ precisely, or the fleet parallelizes wrong.
 - Focus argument (`security`, `perf`, `tests`) → recon, then that category only, then plan.
 - `next` / `features` / `roadmap` → recon, then the direction category in depth: 4–6 grounded
   suggestions with evidence, tradeoffs, coarse effort. Selected ones become spike plans.
+- `run <plan-file>...` → execute mode (see `SKILL.md` Phase 0): no audit, no new plans, no
+  `SPEC.md`. Reconcile the named plans, then hand them to the fleet.
 - `plan <description>` → skip the audit; recon, investigate just enough to specify honestly,
   write one plan. Resolve ambiguity from the codebase first; ask the user only what remains,
   one question at a time, each with a recommended answer.

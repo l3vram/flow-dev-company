@@ -45,12 +45,17 @@ downstream. Details and the risk router: `token-budget.md`, `review.md`.
 ## FLOW
 
 ### Phase 0 · Start or resume
-**Resume first.** If `.flow/state.json` exists, a run is in flight: run `flow.sh panel`, read
-`plans/SPEC.md`, run `reconcile` from `references/review.md`, and continue from the recorded
-phase. Never start a second run over a live one without asking.
+Pick the entry point — each one skips what already exists instead of re-creating it:
 
-Otherwise, if invoked with a goal, take it. If empty, reply and **wait**: "What are we
-building?" Assume nothing, spawn nothing yet.
+| Invoked with | Entry |
+|---|---|
+| `.flow/state.json` exists | **Resume**: `flow.sh panel`, read `plans/SPEC.md` if present, run `reconcile` (`references/review.md`), continue from the recorded phase. Never start a second run over a live one without asking. |
+| Existing plan file(s) — "run plan 156", `plans/156-*.md` | **Execute mode**: skip Phase 1 and `SPEC.md`. The plan is the spec; its done criteria are the definition of done. Run `reconcile` on those plans (drift check against current HEAD, environment-specific paths or commands, stale excerpts) and fix what it finds, then Gate A, then Phase 3. |
+| A goal | Phase 1. |
+| Nothing | Reply and **wait**: "What are we building?" Assume nothing, spawn nothing yet. |
+
+`reconcile` before execution is not optional in resume or execute mode — a plan written on
+another machine or against older code hands the executor false facts.
 
 ### Phase 1 · Enrich — questions and senior upgrades (you do this yourself)
 Given something vague ("I want a chatbot"):
@@ -86,7 +91,9 @@ Output: files in `plans/` plus `plans/README.md` with order and dependencies. Th
 ### GATE A · Human plan approval
 Show the plans and the dependency order. The user approves via `AskUserQuestion` or
 `ExitPlanMode`. **Do not dispatch the fleet without it.** Record with `flow.sh gate A approved`
-— `flow.sh ready` refuses to list any plan until you do.
+— `flow.sh ready` refuses to list any plan until you do. In execute mode the user may already
+have approved the plan; then one line suffices ("Plan 156 reconciled: <changes>. Run it?"),
+but only after reconcile, since its fixes are what they are approving.
 
 ### Phase 3 · Run the fleet
 Read `references/execution.md`. Register plans and layer the waves:
@@ -121,9 +128,19 @@ flow.sh ready             # what is dispatchable right now
 In the **integration worktree** (`.flow/integration`), where all plans meet:
 1. Every plan's done criteria (build/typecheck/lint/test). Plans that passed alone can break
    together — this is where that shows.
-2. **Run & smoke**: start the product and drive the smoke scenario from `SPEC.md` — a real
-   request for an API, the real command for a CLI, a Playwright script for a web UI. Passing
-   tests with an app that does not boot is not done.
+2. **Run & smoke**: start the product and drive the smoke scenario (from `SPEC.md`, or the
+   plan's own done criteria in execute mode) — a real request for an API, the real command
+   for a CLI, a Playwright script for a web UI. Passing tests with an app that does not boot
+   is not done.
+
+   **When the product cannot start here** (no mobile SDK or emulator, missing hardware,
+   production-only credentials), take the highest layer that *can* run, in this order: an
+   in-process integration test that goes through the real entry point → tests at the
+   state-holder boundary (ViewModel, controller, service) driving the smoke scenario's steps
+   → unit tests of the changed logic. Record it with
+   `flow.sh smoke substituted "<why> — <what ran instead>"`; otherwise
+   `flow.sh smoke pass|fail "<command>"`. A substitute is never silently called a pass: Gate B
+   shows it, and the user is told what still needs a real device or environment to confirm.
 
 Deterministic and blocking. A failure becomes a fix plan and requeues to execution.
 
@@ -133,14 +150,18 @@ audit only the run's changes, separating `introduced` from `pre-existing`. Survi
 get fixed.
 
 ### GATE B · Human final review
-Show the result against `SPEC.md`'s done criteria, the smoke result, every blocked or
+Show the result against the done criteria (`SPEC.md`, or the plans' in execute mode), the
+smoke result from the panel — flagged when substituted — every blocked or
 skipped plan with its reason, and `flow.sh report` for the token ledger. The user decides:
 merge `flow/<run>/main` into their branch, or iterate. Record with `flow.sh gate B …`.
 
 ### Phase 6 · Handoff
-A `haiku` agent writes the changelog, PR notes, and decision summary. `plans/` and
-`plans/SPEC.md` stay as the record, so the run can be resumed or replayed. Clean up plan
-worktrees; keep the integration branch until the user has merged it.
+Write the changelog, PR notes, and decision summary. **Size decides who writes them**: for
+a run of one or two plans, write them yourself — a spawn costs more than a few lines of text.
+Dispatch a `haiku` `docs` agent only when the handoff is substantial (several plans, release
+notes, docs updates across files). `plans/` (and `SPEC.md` when it exists) stays as the
+record, so the run can be resumed or replayed. Clean up plan worktrees; keep the integration
+branch until the user has merged it.
 
 ---
 
@@ -161,7 +182,9 @@ If `TaskCreate`/`TaskList` exist, mirror each plan as a task too.
    is integrated before the next wave starts. State lives in `.flow/state.json`; the circuit
    breaker stops at 3 attempts.
 4. Verify means the plans' done criteria plus the smoke run, as deterministic code on the
-   integrated result — never an agent's opinion.
+   integrated result — never an agent's opinion. A substituted smoke is reported as such.
+8. Ceremony scales with the work. Never create an artifact or spawn an agent whose cost
+   exceeds what it protects — the same rule that batches trivial plans applies to every phase.
 5. Execution goes to the cheap tier, judgment to the expensive one. Report the ledger when it helps.
 6. The execute↔verify loop converges under an attempt ceiling.
 7. The advisor **never edits code directly** — it writes plans and reviews diffs. The fleet

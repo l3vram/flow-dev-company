@@ -97,12 +97,23 @@ Reordering these blocks for readability defeats the cache — keep the order.
   "by_tier":   { "opus": 138000, "sonnet": 240000, "haiku": 70000 },
   "by_plan":   { "001": 22000, "002": 61000 },
   "spawns": 7,
+  "inline": 3,
   "notes": "003 retried twice — 40k of the execute total"
 }
 ```
 
 Token counts come from what the harness reports per agent; when a number is unavailable,
-record `null` (`flow.sh budget <id> null …`) — the spawn is listed as unreported, never
-estimated. A guessed ledger is worse than no ledger — it makes
+record `null` (`flow.sh budget <id> null …`) — the entry is listed as unreported, never
+estimated.
+
+Every line has a kind: `spawn` (default — a dispatched agent) or `inline` (work you did in
+your own context, such as reviewing a diff yourself). Pass `inline` for your own work;
+otherwise the agent count at Gate B is inflated and the next batching decision is made on
+a wrong number.
+
+```
+flow.sh budget 156 119530 sonnet execute          # the executor agent
+flow.sh budget 156 null   opus   review  inline   # your own review of its diff
+``` A guessed ledger is worse than no ledger — it makes
 the next optimization decision on fiction. Report actuals at Gate B, flag any plan that
 consumed disproportionately, and say plainly which figures were unavailable.

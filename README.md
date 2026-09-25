@@ -25,7 +25,9 @@ Self-contained: **nothing else to install.**
                                                   wave)
 ```
 
-- **Resume** — if a run is already in flight (`.flow/state.json`), it picks up where it left off.
+- **Resume / execute mode** — if a run is already in flight (`.flow/state.json`), it picks up
+  where it left off. Point it at an existing plan (`run plans/156-*.md`) and it skips the spec
+  and goes straight to reconcile → approval → fleet.
 - **Enrich** — specializes into your domain, proposes what good engineering includes even if
   unasked, and asks the missing questions with options + presets (MVP / Production / Custom).
   The result is written to `plans/SPEC.md`, including the smoke scenario that proves it works.
@@ -39,7 +41,9 @@ Self-contained: **nothing else to install.**
   branches from it, so dependent plans build on real code. Barrier between waves, 3-attempt
   circuit breaker per plan, blocked plans cascade-skip their dependents instead of stalling.
 - **Verify** — on the integrated result: every plan's done criteria (build/test/lint) **plus a
-  smoke run** that boots the product and drives its main flow. Deterministic, blocking.
+  smoke run** that boots the product and drives its main flow. When the product cannot
+  start in the environment (no mobile SDK, no device), it falls back to the highest runnable
+  layer and reports the smoke as *substituted* — never as a pass. Deterministic, blocking.
 - **Risk-routed review** — a router decides the review budget per diff: high-risk changes
   (auth, payments, crypto, migrations, new deps, large diffs) get the full four-layer gauntlet
   on the expensive tier; everything else gets spec-compliance + correctness on a cheaper one.
@@ -104,7 +108,7 @@ orchestrator falls back to maintaining state itself and says so.
 Test the plumbing:
 
 ```bash
-~/.claude/skills/flow-dev-company/scripts/test-flow.sh   # 40 checks, throwaway git repo
+~/.claude/skills/flow-dev-company/scripts/test-flow.sh   # 46 checks, throwaway git repo
 ```
 
 ## Structure

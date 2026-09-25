@@ -104,7 +104,9 @@ Process what happened since the last session. Read `plans/README.md` and each pl
   one attempt when re-dispatched.
 - **green but not integrated** — run `flow.sh integrate <id>` before anything else; the next
   wave depends on it.
-- **TODO** — run the drift check. If drifted, re-verify the finding still exists (it may
+- **TODO** — check the plan is executable *here*: absolute paths, tools, or commands
+  from another machine (`/Users/...`, a local SDK path, a Mac-only command) get rewritten
+  for this environment. Then run the drift check. If drifted, re-verify the finding still exists (it may
   have been fixed in passing), then refresh excerpts and the `Planned at` SHA. If the
   finding is gone, mark REJECTED ("fixed independently").
 

@@ -134,8 +134,10 @@ Machine-checkable. ALL must hold:
 - [ ] `pnpm test` exits 0; new tests for <X> exist and pass
 - [ ] `grep -rn "<old pattern>" src/` returns no matches
 - [ ] No files outside the in-scope list are modified (`git status`)
-- [ ] (Plans that touch runtime behavior) the smoke command from `SPEC.md` still
-      passes: `<smoke command>` → <expected>
+- [ ] (Plans that touch runtime behavior) the smoke command still passes:
+      `<smoke command>` → <expected>. If the product cannot start in the
+      executor's environment, name the fallback layer here (e.g. ViewModel tests)
+      so no one improvises one.
 
 ## STOP conditions
 
