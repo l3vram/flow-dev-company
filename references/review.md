@@ -1,121 +1,251 @@
-# Review — risk router, gates, verdicts, reconcile
+# Execution — waves, roster, dispatch, state
 
-Read this when a diff comes back. You do not need `planning.md` or `execution.md` loaded
-at the same time.
+How the fleet runs. Read this at the start of Phase 3; you do not need `planning.md` or
+`review.md` loaded at the same time.
 
-The founding rule holds: **the reviewer never edits code.** An executor edits in an
-isolated worktree; you dispatch, review, and render a verdict — a tech lead who does not
-push commits to someone else's branch. Treat every diff as untrusted until reviewed.
-
----
-
-## 1. Risk router — decide the review budget before reviewing
-
-Running four layers of opus review over a three-line config change is the single largest
-source of waste in a fleet run. Classify first:
-
-**HIGH risk → full gauntlet, `opus`.** Any of:
-- authentication, authorization, session, or permission logic
-- payments, billing, pricing, or anything monetary
-- cryptography, secrets, credentials, token handling
-- outbound network calls or new external egress
-- data migrations, deletions, or destructive operations
-- new third-party dependencies
-- more than ~150 changed lines
-- the plan itself was tagged `Risk: HIGH`
-
-**Otherwise → layers 1–2 only, `sonnet`.**
-
-Two overrides: escalate to the full gauntlet whenever a layer 1–2 review surfaces anything
-that smells structural, and when in genuine doubt, escalate. The router exists to skip
-ceremony on boring diffs, not to wave through risk. Record the routing decision and its
-reason in the state file so a cheap review is always an auditable choice.
+Distilled from aaddrick/claude-pipeline (JSON state, quality gates),
+barkain/claude-code-workflow-orchestration (wave scheduling, agent roster), and the
+Planner→Executor→Reviewer architecture common to AgentMesh/CrewAI/AutoGen.
 
 ---
 
-## 2. The gauntlet
+## Task context before execution
 
-In order — stop early only on a hard failure:
+Before modifying code, every executor must read the task context and reconcile it against Git:
 
-1. **Spec compliance** — does it do exactly what the plan asked? Re-run every done
-   criterion in the worktree. Do not trust the executor's report; verify.
-2. **Correctness** — bugs, edge cases, error paths.
-3. **Security** — inputs, secrets, authz, injection surfaces.
-4. **Tests & quality** — do the new tests assert anything meaningful? Executors game
-   criteria; a test that asserts nothing still passes the suite. Read what it asserts.
+```text
+1. Read the complete task context:
+   - tasks/TASK-xxx/task.md
+   - tasks/TASK-xxx/context.md
+   - tasks/TASK-xxx/handoff.md
+   - tasks/TASK-xxx/decisions.md
+   - tasks/TASK-xxx/investigation.md when relevant
 
-**Scope compliance runs at every level**, HIGH risk or not: `git -C <worktree> diff --stat`
-against the plan's in-scope list. A file outside scope fails review, full stop, however
-plausible the change looks.
+2. Inspect:
+   - git status
+   - task-related git log
+   - current branch
+   - relevant diff
 
-**Adversarial verification** applies to HIGH-severity findings only: try to refute the
-finding with N skeptics and keep it by majority. Running skeptics over every minor nit
-costs more than the nits are worth. Diverse lenses (correctness / security / perf /
-maintainability) catch what N identical checks never will.
+3. Verify the handoff matches the repository.
 
----
+If task context and Git disagree:
+STOP, identify the discrepancy, update the task context if safe, and report it.
 
-## 3. Verdicts
+Before returning:
+- update handoff.md
+- record actual verification results
+- record actual commits
+- record remaining work
+- commit the task-context update with the task ID
+```
 
-Documented deviations are judged on merit, not reflex-blocked. "Do not improvise" exists to
-stop silent drift. An executor that hit a real obstacle, adapted minimally, and explained it
-in NOTES did the right thing — approve if the adaptation serves the plan's intent and stays
-in scope. *Undocumented* deviations are review failures.
+`flow.sh` remains the run-state machine for orchestration. `tasks/TASK-xxx/*` remains the
+durable engineering context for the task. Do not merge them into a second state machine.
 
-| Verdict | When | Action |
-|---|---|---|
-| **APPROVE** | Criteria pass, scope clean, quality holds | `flow.sh set <id> green && flow.sh integrate <id>`; update the index. A conflict (exit 6) returns the plan to review — the executor resolves it on its branch. **Merging into the user's branch is their call at Gate B — never merge, push, or commit there.** |
-| **REVISE** | Fixable gaps | `flow.sh revise <id>`, then `SendMessage` to the same executor with specific, actionable feedback ("criterion 3 fails: X; `api.ts:90` swallows the error — use the Result pattern per the plan"). **Max 2 revision rounds** — the script blocks the plan on the third. |
-| **BLOCK** | STOP condition hit, scope violated unrecoverably, or revisions exhausted | `flow.sh set <id> blocked "<reason>"`. Refine or rewrite the plan with what was learned and requeue (`set <id> pending`), or — after the human gate — `flow.sh skip-dependents <id>`. Tell the user what happened and what changed. |
-
-Running verification commands inside the executor's worktree is fine — it is isolated and
-disposable. The no-mutating-commands rule protects the user's working tree, not the worktree.
-
----
-
-## 4. Branch review (Phase 5)
-
-Run in the integration worktree after Phase 4 passed. Audit only the run's changes: files
-changed on `flow/<run>/main` since its base
-(`git -C .flow/integration diff --name-only <base>...HEAD`) plus their direct importers and
-callers. Light recon, all categories, usually no subagents. For a review outside a flow run,
-use the merge-base with the default branch instead.
-
-**Tag every finding `introduced` or `pre-existing`** and separate them in the table. Do not
-blame the branch for legacy debt — but do surface what it is building on top of.
-
-Vet before presenting. Subagents over-report, and three failure classes recur: by-design
-behavior reported as a bug, mis-attributed evidence (real finding, wrong file or line), and
-duplicates. Open the cited code yourself before it reaches the table.
+The executor must not rely on conversation history. The repository and the task files are the
+source of truth.
 
 ---
 
-## 5. `reconcile` — keep `plans/` alive
+## 1. Waves — derive parallelism, don't guess it
 
-Process what happened since the last session. Read `plans/README.md` and each plan, then:
+Read the dependency graph in `plans/README.md` and layer it topologically (Kahn):
 
-- **DONE** — spot-check that done criteria still hold at current HEAD (cheap ones only).
-  Mark verified. Never delete plan files; they are the record.
-- **BLOCKED** — read the reason, investigate the obstacle, then either rewrite the plan
-  around it (new number if the approach changed fundamentally, in-place refresh otherwise)
-  or mark REJECTED with one line of rationale.
-- **IN PROGRESS (stale)** — an executor probably died mid-run (state says `running` but no
-  agent is alive). Check its branch for commits; `set <id> pending` to requeue, which costs
-  one attempt when re-dispatched.
-- **green but not integrated** — run `flow.sh integrate <id>` before anything else; the next
-  wave depends on it.
-- **TODO** — check the plan is executable *here*: absolute paths, tools, or commands
-  from another machine (`/Users/...`, a local SDK path, a Mac-only command) get rewritten
-  for this environment. Then run the drift check. If drifted, re-verify the finding still exists (it may
-  have been fixed in passing), then refresh excerpts and the `Planned at` SHA. If the
-  finding is gone, mark REJECTED ("fixed independently").
+- **Wave 1** = every plan with no dependencies.
+- **Wave N** = plans whose dependencies all sit in waves < N.
 
-Close with: what is verified done, what was refreshed, what is rejected, what is executable now.
+Rules:
+- Plans in the same wave run in parallel — dispatched in **one message**, in background.
+- **Barrier between waves**: wave N+1 does not start until every plan in wave N is settled —
+  green *and integrated*, blocked, or skipped.
+- A blocked plan does not block its wave siblings. It does block its dependents: after the
+  human gate decides, `flow.sh skip-dependents <id>` marks them skipped so the barrier can
+  move, and they are reported at Gate B. Without this the pipeline stalls forever.
+
+`scripts/flow.sh waves` computes the layering from the state file and rejects unknown
+dependencies (exit 3) and cycles (exit 2). Use it. Hand-deriving a DAG in prose costs
+expensive output tokens for something that is arithmetic.
+
+### Integration — how wave N+1 sees wave N
+
+Worktrees start from a commit, not from each other. Without an integration step every plan
+is built on the original base, and "depends on 001" means nothing.
+
+- `flow.sh integration-init` creates branch `flow/<run>/main` in its own worktree
+  (`.flow/integration`). The user's checkout is never touched.
+- Each executor works on branch `flow/<run>/<id>`, created **from the integration branch**
+  at dispatch time — so it contains every dependency already integrated.
+- After APPROVE: `flow.sh set <id> green && flow.sh integrate <id>` (a `--no-ff` merge).
+- On a merge conflict (exit 6) the plan returns to `review`. `SendMessage` its executor:
+  merge `flow/<run>/main` into its branch, resolve, re-run the done criteria, report. Two
+  plans conflicting in one wave usually means the plans overlapped in scope — note it for
+  the next planning pass.
 
 ---
 
-## 6. Tone
+## 2. Roster — every agent knows who it is and what it must not touch
 
-You are advising, not selling. State findings plainly with evidence, flag uncertainty
-honestly, and prefer "not worth doing" over padding the list. A short list of
-high-confidence findings beats a long one.
+Each dispatched agent adopts a role with an explicit contract: scope, anti-patterns, tier.
+This table is the **stable prompt prefix** — copy the row verbatim so agents of the same
+role share a cache hit (see `token-budget.md`).
+
+| Role | Tier | Does | Never does |
+|---|---|---|---|
+| `architect` | opus | Designs, decomposes into plans, adjudicates findings | Writes product code |
+| `backend-dev` | sonnet | Backend, API, business logic | Touches UI or infra outside its plan |
+| `frontend-dev` | sonnet | UI, components | Changes API contracts unilaterally |
+| `data-dev` | sonnet/haiku | Schema, migrations, seeds | Business logic beyond the data layer |
+| `qa` | sonnet | Writes and runs tests, validates done criteria | Edits product code — tests only |
+| `security-reviewer` | opus | Reviews through a security lens | Rewrites; reports findings only |
+| `perf-reviewer` | sonnet | Reviews through a performance lens | Rewrites; reports findings only |
+| `docs` | haiku | Changelog, README, PR notes | Architecture decisions |
+
+Pick the role from the plan's category. When two fit, the narrower one wins.
+
+---
+
+## 3. Dispatch
+
+One `Agent` call per plan (or per batch — see `token-budget.md`), `isolation: "worktree"`,
+`run_in_background: true`, at the role's tier. Preconditions before any dispatch:
+
+- The working repo is a git repository with at least one commit, and the integration
+  worktree exists. If not, stop and say so — worktree isolation needs both.
+- Gate A is approved and the plan appears in `flow.sh ready` (dependencies green and integrated).
+- `flow.sh set <id> running` succeeded — it refuses a fourth dispatch.
+- The plan's drift check passes. Never hand a stale plan to an executor.
+
+**Prompt structure** — stable prefix first, byte-identical per role:
+
+```
+[PREFIX]  role row (verbatim from §2) + hard rules + caveman micro-directive
+          + return contract
+[SUFFIX]  full plan text inlined + worktree note + wave context
+```
+
+Inline the **full plan text**. The worktree contains only committed files; if `plans/` is
+uncommitted, the executor cannot read it. Never assume it can.
+
+**Executor preamble** (part of the stable prefix):
+
+> You are the executor for the plan below. Before modifying code, read the task context in
+> `tasks/TASK-xxx/task.md`, `context.md`, `handoff.md`, `decisions.md`, and `investigation.md`
+> when relevant. Then inspect `git status`, the task-related `git log`, the current branch,
+> and the relevant diff. Verify the handoff matches the repository. If the task context and
+> Git disagree, STOP, identify the discrepancy, update the task context if safe, and report it.
+>
+> Build on the integrated work, not the original base. Create or switch to the task branch,
+> follow the plan step by step, and run every verification command and confirm the expected
+> result before continuing. Touch only in-scope files. On any STOP condition, stop immediately
+> and report — do not improvise around obstacles.
+>
+> Commit on that branch per the plan's git workflow; never push. Do not edit
+> `plans/README.md` — your reviewer maintains the index. Before reporting, audit every claim
+> against an actual tool result from this session — report only what you have evidence for;
+> if a verification failed or was skipped, say so plainly.
+>
+> Before returning, update `handoff.md`, record actual verification results, actual commits,
+> remaining work, and the task-context update with the task ID.
+
+**Fresh-worktree note**: worktrees share git history but not `node_modules` or build
+artifacts. The executor installs dependencies first, and tooling that resolves from `dist/`
+may need one build even if the plan's command table (recon'd in the main tree) omitted it.
+This is expected, not a deviation.
+
+---
+
+## 4. Return contract — mandatory, not a suggestion
+
+Agents must not dump diffs, file contents, or logs into the orchestrator's context. The
+orchestrator reads what it needs from disk.
+
+```
+STATUS: COMPLETE | STOPPED
+STEPS: per step — done/skipped + verification result
+STOPPED_BECAUSE: (only if STOPPED) which condition, what was observed
+FILES: paths only, no contents
+WORKTREE: path
+BRANCH: flow/<run>/<id>
+NOTES: deviations, surprises, judgment calls — max 5 lines
+```
+
+For anything larger than this, the agent writes a file and returns `DONE|<path>`.
+A report that violates the contract is a review failure on its own — re-request it rather
+than reading the overflow, or the savings evaporate at the moment they matter most.
+
+---
+
+## 5. State file — resume, panel, circuit breaker
+
+`.flow/state.json` in the working repo is the machine-readable source of truth. It survives
+context loss, drives the panel, and enforces the retry ceiling.
+
+```json
+{
+  "run": "2026-07-31-chatbot",
+  "objective": "Support chatbot with streaming and moderation",
+  "phase": "execute",
+  "gates": { "A": "approved", "B": "pending" },
+  "integration": { "branch": "flow/2026-07-31-chatbot/main", "base": "main",
+                   "worktree": ".flow/integration" },
+  "waves": [["001"], ["002", "003"], ["004"]],
+  "current_wave": 1,
+  "plans": [
+    { "id": "001", "role": "data-dev", "tier": "haiku", "status": "green",
+      "attempts": 1, "revisions": 0, "deps": [],
+      "branch": "flow/2026-07-31-chatbot/001", "integrated": true },
+    { "id": "002", "role": "backend-dev", "tier": "sonnet", "status": "running",
+      "attempts": 1, "revisions": 1, "deps": ["001"],
+      "branch": "flow/2026-07-31-chatbot/002", "integrated": false }
+  ],
+  "budget": { "by_phase": {}, "by_tier": {}, "by_plan": {}, "spawns": 0, "inline": 0, "unreported": [] },
+  "smoke": { "result": "substituted", "detail": "no Android SDK — ViewModel tests" }
+}
+```
+
+- `status`: `pending | running | review | green | blocked | skipped`. `phase` is updated with
+  `flow.sh phase <name>` at every phase boundary so the panel tells the truth.
+- **One counting rule.** An *attempt* is a fresh dispatch (`set running`); a *revision* is a
+  `SendMessage` round to the same executor within an attempt (`flow.sh revise`). Max 3
+  attempts per plan, max 2 revisions per attempt — the third revision blocks the attempt.
+  After the third blocked attempt the circuit breaker trips: escalate to a human gate. Never
+  burn budget on blind retries.
+- Update on every transition via `scripts/flow.sh`, not by rewriting JSON in prose. Every
+  input is validated; a non-zero exit means the transition did not happen.
+
+---
+
+## 6. Determinism — plumbing is code, not tokens
+
+Control flow is deterministic code; only the work inside an agent belongs to the model.
+Wave layering, state updates, panel rendering, dedupe, and result merging are `scripts/flow.sh`
+territory — zero tokens. Do not spend an expensive model re-rendering a table each turn.
+
+If you generate a real orchestration script: no `Date.now()`, `Math.random()`, or bare
+`new Date()` in control flow. Pass timestamps as arguments so a run can be resumed and cached.
+
+---
+
+## 7. Subagent mode vs team mode
+
+- **Default (subagent)**: each plan runs in an isolated `Agent` with a worktree and returns
+  under the contract above.
+- **Team mode** (only if `TeamCreate`/`SendMessage` exist): peer-to-peer agents on a shared
+  task list — worth the extra coordination cost only when two plans must negotiate live.
+  Default to subagent mode; team mode multiplies context, and context is the budget.
+
+---
+
+## 8. Handoff and Git-driven continuation
+
+A handoff is a proof artifact, not a transcript. The next agent must verify:
+
+- the task identity and file paths are correct
+- the listed files match the current Git diff
+- the commit list matches the branch history
+- the verification result has evidence
+- the remaining work matches the actual repo state
+
+If it does not, the handoff is stale and must be corrected before continuing.
+

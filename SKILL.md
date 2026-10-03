@@ -1,6 +1,6 @@
 ---
 name: flow-dev-company
-description: End-to-end development orchestrator. Takes a goal ("I want to build a chatbot"), enriches it with senior-level questions, then plans and executes with a fleet of parallel agents — an expensive brain plans and reviews, cheap hands execute in isolated worktrees, each task at the right tier, with the fleet's progress visible. Self-contained; depends on no external skill. Use when the user wants to build something from scratch or ship a large feature in an orchestrated way.
+description: End-to-end development orchestrator. Takes a goal ("I want to build a chatbot"), enriches it with senior-level questions, then plans and executes with a fleet of parallel agents — an expensive brain plans and reviews, cheap hands execute in isolated worktrees, every task at the right model tier.
 ---
 
 # flow-dev-company
@@ -19,6 +19,7 @@ current phase needs; do not preload all five.
 | Planning (2) | `references/planning.md` → then `audit-playbook.md` + `plan-template.md` as it directs |
 | Execution (3) | `references/execution.md` |
 | Review (3, 5) | `references/review.md` |
+| Task lifecycle / handoff | `references/task-context.md` |
 | Always in effect | `references/token-budget.md` — read once at start, it is short |
 
 Deterministic plumbing lives in `scripts/flow.sh` (waves, state, gates, integration, panel,
@@ -28,6 +29,21 @@ inputs and fails loudly — a non-zero exit is information, never something to r
 
 When you delegate, pass subagents the **absolute path** to the file they need. They do not
 inherit your context, but they can read files — far cheaper than pasting.
+
+## Task Context principle
+
+Git is the durable source of engineering context for each task. The orchestrator still uses
+plans and `.flow/state.json`, but a meaningful unit of work also gets a stable task identity
+and a small set of versioned context files under `tasks/TASK-xxx/`.
+
+The source-of-truth hierarchy is:
+
+1. Git code/history — authoritative evidence of what happened.
+2. `tasks/TASK-xxx/*` — authoritative task intent, context, decisions, handoff state.
+3. GitHub Issue — collaboration/index surface, not the sole source of truth.
+4. Basic Memory — reusable cross-task knowledge, not a replacement for task history.
+
+If task text and Git disagree, trust Git and reconcile the task files.
 
 ## Two rules that shape everything
 
@@ -49,10 +65,22 @@ Pick the entry point — each one skips what already exists instead of re-creati
 
 | Invoked with | Entry |
 |---|---|
-| `.flow/state.json` exists | **Resume**: `flow.sh panel`, read `plans/SPEC.md` if present, run `reconcile` (`references/review.md`), continue from the recorded phase. Never start a second run over a live one without asking. |
-| Existing plan file(s) — "run plan 156", `plans/156-*.md` | **Execute mode**: skip Phase 1 and `SPEC.md`. The plan is the spec; its done criteria are the definition of done. Run `reconcile` on those plans (drift check against current HEAD, environment-specific paths or commands, stale excerpts) and fix what it finds, then Gate A, then Phase 3. |
+| `.flow/state.json` exists | **Resume**: `flow.sh panel`, read `plans/SPEC.md` if present, run `reconcile` (`references/review.md`), continue from the recorded phase. Never start a second run over the same repo state. |
+| Existing plan file(s) — "run plan 156", `plans/156-*.md` | **Execute mode**: skip Phase 1 and `SPEC.md`. The plan is the spec; its done criteria are the definition of done. Run `reconcile` on the plan before execution. |
 | A goal | Phase 1. |
 | Nothing | Reply and **wait**: "What are we building?" Assume nothing, spawn nothing yet. |
+
+Before resuming a task, locate its task context and read:
+
+```text
+`tasks/TASK-xxx/task.md`
+`tasks/TASK-xxx/handoff.md`
+`tasks/TASK-xxx/context.md`
+`tasks/TASK-xxx/decisions.md`
+`tasks/TASK-xxx/investigation.md` when relevant
+```
+
+Then reconcile against Git (`git status`, `git log`, relevant diff) before execution.
 
 `reconcile` before execution is not optional in resume or execute mode — a plan written on
 another machine or against older code hands the executor false facts.
@@ -75,6 +103,14 @@ Close with a written **refined spec** and confirm it with the user. Then write i
 context compaction. Include the **smoke scenario**: the one user-visible flow that proves the
 product works end to end (e.g. "send a message, receive a streamed reply").
 
+When the goal becomes a meaningful task, establish the Task Context before detailed planning:
+
+- identify or create a stable `TASK-<number>`
+- create `tasks/TASK-<n>/`
+- write `task.md`, `context.md`, and initialize `investigation.md`, `decisions.md`, `handoff.md`
+- record the base git SHA
+- link the task to its plan
+
 ### Phase 2 · Plan
 Read `references/planning.md` and act as the advisor (or dispatch an `opus` subagent that
 follows it, passing the absolute path).
@@ -86,14 +122,16 @@ follows it, passing the absolute path).
 - **Existing repo / large feature**: full workflow — Recon → parallel Audit → prioritized
   table → plans.
 
+Every selected plan must identify its Task ID and its task path.
+
 Output: files in `plans/` plus `plans/README.md` with order and dependencies. That is your DAG.
 
 ### GATE A · Human plan approval
 Show the plans and the dependency order. The user approves via `AskUserQuestion` or
 `ExitPlanMode`. **Do not dispatch the fleet without it.** Record with `flow.sh gate A approved`
 — `flow.sh ready` refuses to list any plan until you do. In execute mode the user may already
-have approved the plan; then one line suffices ("Plan 156 reconciled: <changes>. Run it?"),
-but only after reconcile, since its fixes are what they are approving.
+have approved the plan; then one line suffices ("Plan 156 reconciled: <changes>. Run it?")
+, but only after reconcile, since its fixes are what they are approving.
 
 ### Phase 3 · Run the fleet
 Read `references/execution.md`. Register plans and layer the waves:
@@ -124,6 +162,37 @@ flow.sh ready             # what is dispatchable right now
   fourth). A plan that stays blocked → human gate, then `flow.sh skip-dependents <id>` so the
   pipeline moves on instead of stalling.
 
+**Executor preamble extension:** before modifying code the executor must read the task context:
+
+```text
+Before modifying code:
+
+1. Read the complete task context:
+   - tasks/TASK-xxx/task.md
+   - tasks/TASK-xxx/context.md
+   - tasks/TASK-xxx/handoff.md
+   - tasks/TASK-xxx/decisions.md
+   - tasks/TASK-xxx/investigation.md when relevant.
+
+2. Inspect:
+   - git status
+   - task-related git log
+   - current branch
+   - relevant diff
+
+3. Verify that the handoff matches the repository.
+
+If task context and Git disagree:
+STOP, identify the discrepancy, update the task context if safe, and report it.
+
+Before returning:
+- update handoff.md
+- record actual verification results
+- record actual commits
+- record remaining work
+- commit the task-context update with the task ID
+```
+
 ### Phase 4 · Verify (code, not an agent)
 In the **integration worktree** (`.flow/integration`), where all plans meet:
 1. Every plan's done criteria (build/typecheck/lint/test). Plans that passed alone can break
@@ -144,10 +213,19 @@ In the **integration worktree** (`.flow/integration`), where all plans meet:
 
 Deterministic and blocking. A failure becomes a fix plan and requeues to execution.
 
+**Verification results must be reflected in the task handoff.**
+
 ### Phase 5 · Final branch review
 Run the branch review in `references/review.md` on the integration branch against its base:
-audit only the run's changes, separating `introduced` from `pre-existing`. Surviving findings
+ audit only the run's changes, separating `introduced` from `pre-existing`. Surviving findings
 get fixed.
+
+Review must include **Task Context Consistency**:
+- task identity and plan linkage
+- scope match between task/plan and Git diff
+- context freshness
+- handoff correctness
+- acceptance criteria verification
 
 ### GATE B · Human final review
 Show the result against the done criteria (`SPEC.md`, or the plans' in execute mode), the
@@ -157,11 +235,13 @@ merge `flow/<run>/main` into their branch, or iterate. Record with `flow.sh gate
 
 ### Phase 6 · Handoff
 Write the changelog, PR notes, and decision summary. **Size decides who writes them**: for
-a run of one or two plans, write them yourself — a spawn costs more than a few lines of text.
+ a run of one or two plans, write them yourself — a spawn costs more than a few lines of text.
 Dispatch a `haiku` `docs` agent only when the handoff is substantial (several plans, release
 notes, docs updates across files). `plans/` (and `SPEC.md` when it exists) stays as the
 record, so the run can be resumed or replayed. Clean up plan worktrees; keep the integration
 branch until the user has merged it.
+
+Final handoff must finalize the task context and link PR/merge/commits.
 
 ---
 
@@ -190,3 +270,148 @@ If `TaskCreate`/`TaskList` exist, mirror each plan as a task too.
 7. The advisor **never edits code directly** — it writes plans and reviews diffs. The fleet
    executes in isolated worktrees. The integration branch is the only thing it merges into;
    never merge into the user's branch or push without Gate B.
+
+---
+
+## Task lifecycle
+
+```text
+BACKLOG
+   ↓
+READY
+   ↓
+ANALYZING
+   ↓
+IMPLEMENTING
+   ↓
+VALIDATING
+   ↓
+REVIEW
+   ↓
+DONE
+```
+
+Exceptional transitions:
+
+```text
+ANALYZING ─────→ BLOCKED
+IMPLEMENTING ──→ BLOCKED
+VALIDATING ────→ BLOCKED
+REVIEW ────────→ BLOCKED
+
+BLOCKED ───────→ READY / IMPLEMENTING
+```
+
+Each transition should leave evidence in Git/task context when it materially changes the work.
+The task context is durable engineering context; `.flow/state.json` remains the orchestration
+state. They are separate but complementary.
+
+## Distinction between task, plan, and Git
+
+```text
+Issue → Task → Plan → Branch → Commits → PR → Merge
+```
+
+- Issue = collaboration/index
+- Task = durable work identity + context
+- Plan = implementation procedure
+- Git = evidence of actual code/history
+- Basic Memory = reusable cross-task project knowledge
+
+This skill preserves the existing flow and adds a Git-native task layer around it, without
+turning issues or task files into a competing state machine.
+
+---
+
+## Recommended task context files
+
+```text
+tasks/
+└── TASK-142/
+    ├── task.md
+    ├── context.md
+    ├── investigation.md
+    ├── decisions.md
+    └── handoff.md
+```
+
+For tiny tasks, the minimal set may be `task.md`, `context.md`, and `handoff.md`.
+The orchestrator must not create full ceremony for one-line changes.
+
+Task context is read by any executor or reviewer before modifying code and must be reconciled
+against Git before continuing.
+
+---
+
+## Handoff rule (non-negotiable)
+
+Any agent that changes a task must update `handoff.md` before handing off to another agent.
+The next agent cannot rely on conversation history; it must read the task files, inspect Git,
+and verify the repo state before acting.
+
+If the task context and Git disagree, stop and reconcile the discrepancy before implementation.
+
+---
+
+## Files to load when a task is active
+
+```text
+- tasks/TASK-xxx/task.md
+- tasks/TASK-xxx/context.md
+- tasks/TASK-xxx/handoff.md
+- tasks/TASK-xxx/decisions.md
+- tasks/TASK-xxx/investigation.md (when relevant)
+- the associated plan
+- git status
+- git log for the task
+- relevant diff
+```
+
+This is the execution contract that makes multi-agent continuation safe when the prior agent's
+chat history is unavailable.
+
+---
+
+## Completion protocol
+
+A task may enter `DONE` only when:
+
+- acceptance criteria are satisfied
+- required verification passes
+- the relevant diff has been reviewed
+- task context matches the final implementation
+- `handoff.md` contains final state
+- PR/merge reference is recorded when applicable
+- known limitations are documented
+
+The task is durable engineering context; the orchestration run state remains ephemeral.
+
+---
+
+## Final note
+
+The upgraded skill should make this possible:
+
+```text
+User conversation disappears
+        ↓
+Agent changes
+        ↓
+New agent starts tomorrow
+        ↓
+Reads TASK-142
+        ↓
+Reads handoff
+        ↓
+Reads decisions
+        ↓
+Reads plan
+        ↓
+Inspects Git history/diff
+        ↓
+Continues correctly
+```
+
+The system optimizes for context that is close to the code, versioned with the code, and
+verifiable against the code.
+

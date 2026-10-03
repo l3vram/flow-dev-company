@@ -1,203 +1,161 @@
-# Handoff Plan Template
+# Review — risk router, gates, verdicts, reconcile
 
-Every plan is written for an executor model that has **zero context**: it has not seen the advisor session, the audit, the other plans, or any prior conversation. It may be a smaller/cheaper model. Assume it is competent at following explicit instructions and weak at filling gaps, recovering from ambiguity, or knowing when to stop.
+Read this when a diff comes back. You do not need `planning.md` or `execution.md` loaded
+at the same time.
 
-Three properties make a plan executable by a weaker model:
-
-1. **Self-contained context** — everything needed is in the file: paths, code excerpts, conventions, commands.
-2. **Verification gates** — every step ends with a command and its expected result. The executor never has to *judge* whether it succeeded.
-3. **Hard boundaries and escape hatches** — explicit out-of-scope list, and "STOP and report" conditions instead of letting the model improvise when reality doesn't match the plan.
-
-File naming: `plans/NNN-short-slug.md`, numbered in recommended execution order.
+The founding rule holds: **the reviewer never edits code.** An executor edits in an
+isolated worktree; you dispatch, review, and render a verdict — a tech lead who does not
+push commits to someone else's branch. Treat every diff as untrusted until reviewed.
 
 ---
 
-## Template
+## 1. Risk router — decide the review budget before reviewing
 
-```markdown
-# Plan NNN: <Imperative title — what will be true after this plan>
+Running four layers of opus review over a three-line config change is the single largest
+source of waste in a fleet run. Classify first:
 
-> **Executor instructions**: Follow this plan step by step. Run every
-> verification command and confirm the expected result before moving to the
-> next step. If anything in the "STOP conditions" section occurs, stop and
-> report — do not improvise. Do not edit `plans/README.md`; the reviewer
-> maintains the index.
->
-> **Drift check (run first)**: `git diff --stat <planned-at SHA>..HEAD -- <in-scope paths>`
-> If any in-scope file changed since this plan was written, compare the
-> "Current state" excerpts against the live code before proceeding; on a
-> mismatch, treat it as a STOP condition.
+**HIGH risk → full gauntlet, `opus`.** Any of:
+- authentication, authorization, session, or permission logic
+- payments, billing, pricing, or anything monetary
+- cryptography, secrets, credentials, token handling
+- outbound network calls or new external egress
+- data migrations, deletions, or destructive operations
+- new third-party dependencies
+- more than ~150 changed lines
+- the plan itself was tagged `Risk: HIGH`
 
-## Status
+**Otherwise → layers 1–2 only, `sonnet`.**
 
-- **Priority**: P1 | P2 | P3
-- **Effort**: S | M | L
-- **Risk**: LOW | MED | HIGH
-- **Depends on**: plans/NNN-*.md (or "none")
-- **Category**: bug | security | perf | tests | tech-debt | migration | dx | docs | direction
-- **Planned at**: commit `<short SHA>`, <YYYY-MM-DD>
-- **Issue**: <GitHub issue URL — only when published via `--issues`; omit otherwise>
-
-## Why this matters
-
-2–5 sentences. The problem, its concrete cost, and what improves when this
-lands. Written so the executor (and a human reviewer) understands the intent —
-intent is what lets a correct judgment call happen when a detail is off.
-
-## Current state
-
-The facts the executor needs, inlined — never "as discussed" or "see audit":
-
-- The relevant files, each with one line on its role:
-  - `src/orders/api.ts` — order-list endpoint; contains the N+1 (lines 130–160)
-- Excerpts of the code as it exists today (short, with `file:line` markers),
-  enough that the executor can confirm it's looking at the right thing.
-- The repo conventions that apply here, with a pointer to one exemplar file:
-  "Error handling follows the Result pattern — see `src/lib/result.ts` and its
-  use in `src/users/api.ts:40-60`. Match it."
-- Any documented vocabulary or design constraints the plan must honor, inlined
-  from the intent/design docs found in recon: the relevant `CONTEXT.md` terms
-  the executor should use in names and comments, the `DESIGN.md` tokens/components
-  to reuse, or the ADR whose decision this work must stay consistent with. Quote
-  the specific lines — the executor has not read those docs.
-
-## Commands you will need
-
-| Purpose   | Command                  | Expected on success |
-|-----------|--------------------------|---------------------|
-| Install   | `pnpm install`           | exit 0              |
-| Typecheck | `pnpm typecheck`         | exit 0, no errors   |
-| Tests     | `pnpm test -- <filter>`  | all pass            |
-| Lint      | `pnpm lint`              | exit 0              |
-
-(Exact commands from this repo — verified during recon, not guessed.)
-
-## Suggested executor toolkit
-
-(Optional — include only when relevant skills/tools plausibly exist in the
-executor's environment. Skip the section otherwise.)
-
-- Skills the executor should invoke if available, and for what:
-  "use `vercel-react-best-practices` when writing the memoization in step 3".
-- Reference docs worth reading before starting, by path or URL.
-
-## Scope
-
-**In scope** (the only files you should modify):
-- `src/orders/api.ts`
-- `src/orders/api.test.ts` (create)
-
-**Out of scope** (do NOT touch, even though they look related):
-- `src/orders/legacy-api.ts` — deprecated path, scheduled for deletion;
-  changing it wastes effort and risks the v1 clients still pinned to it.
-- Any change to the public response shape — clients depend on it.
-
-## Git workflow
-
-(Filled from recon — match the repo's observed conventions.)
-
-- Branch: `flow/<run>/NNN`, created from the integration branch `flow/<run>/main`
-  (the dispatcher fills in `<run>`). Outside a flow run: `advisor/NNN-<slug>` or the
-  repo's convention.
-- Commit per step or per logical unit; message style: <match repo, e.g. conventional commits — include an example from `git log`>
-- Do NOT push or open a PR unless the operator instructed it.
-
-## Steps
-
-### Step 1: <imperative title>
-
-What to do, precisely. Reference exact files/symbols. Include the target code
-shape when it's load-bearing (the pattern to produce, not necessarily every
-line).
-
-**Verify**: `<command>` → <expected output>
-
-### Step 2: ...
-
-(Each step small enough to verify independently. Order steps so the codebase
-is never broken between steps when possible — e.g. add new path, switch
-callers, then remove old path.)
-
-## Test plan
-
-- New tests to write, in which file, covering which cases (list them:
-  happy path, the specific bug/regression this plan fixes, named edge cases).
-- Which existing test to use as the structural pattern:
-  "model after `src/users/api.test.ts`".
-- Verification: `<test command>` → all pass, including N new tests.
-
-## Done criteria
-
-Machine-checkable. ALL must hold:
-
-- [ ] `pnpm typecheck` exits 0
-- [ ] `pnpm test` exits 0; new tests for <X> exist and pass
-- [ ] `grep -rn "<old pattern>" src/` returns no matches
-- [ ] No files outside the in-scope list are modified (`git status`)
-- [ ] (Plans that touch runtime behavior) the smoke command still passes:
-      `<smoke command>` → <expected>. If the product cannot start in the
-      executor's environment, name the fallback layer here (e.g. ViewModel tests)
-      so no one improvises one.
-
-## STOP conditions
-
-Stop and report back (do not improvise) if:
-
-- The code at the locations in "Current state" doesn't match the excerpts
-  (the codebase has drifted since this plan was written).
-- A step's verification fails twice after a reasonable fix attempt.
-- The fix appears to require touching an out-of-scope file.
-- You discover the assumption "<key assumption>" is false.
-
-## Maintenance notes
-
-For the human/agent who owns this code after the change lands:
-
-- What future changes will interact with this (e.g. "if pagination is added
-  to this endpoint, the batching in step 2 must be revisited").
-- What a reviewer should scrutinize in the PR.
-- Any follow-up explicitly deferred out of this plan (and why).
-```
+Two overrides: escalate to the full gauntlet whenever a layer 1–2 review surfaces anything
+that smells structural, and when in genuine doubt, escalate. The router exists to skip
+ceremony on boring diffs, not to wave through risk. Record the routing decision and its
+reason in the state file so a cheap review is always an auditable choice.
 
 ---
 
-## Index file: `plans/README.md`
+## 2. The gauntlet
 
-Written once by the advisor after all plans; the reviewer updates status rows:
+In order — stop early only on a hard failure:
 
-```markdown
-# Implementation Plans
+1. **Spec compliance** — does it do exactly what the plan asked? Re-run every done
+   criterion in the worktree. Do not trust the executor's report; verify.
+2. **Correctness** — bugs, edge cases, error paths.
+3. **Security** — inputs, secrets, authz, injection surfaces.
+4. **Tests & quality** — do the new tests assert anything meaningful? Executors game
+   criteria; a test that asserts nothing still passes the suite. Read what it asserts.
 
-Generated by flow-dev-company on <date> for run `<run-id>`. Spec: `plans/SPEC.md`.
-Execute in the order below unless dependencies say otherwise. Executors read
-their plan fully and honor its STOP conditions; the reviewer updates rows.
+**Scope compliance runs at every level**, HIGH risk or not: `git -C <worktree> diff --stat`
+against the plan's in-scope list. A file outside scope fails review, full stop, however
+plausible the change looks.
 
-## Execution order & status
+**Adversarial verification** applies to HIGH-severity findings only: try to refute the
+finding with N skeptics and keep it by majority. Running skeptics over every minor nit
+costs more than the nits are worth. Diverse lenses (correctness / security / perf /
+maintainability) catch what N identical checks never will.
 
-| Plan | Title | Priority | Effort | Depends on | Status |
-|------|-------|----------|--------|------------|--------|
-| 001  | ...   | P1       | S      | —          | TODO   |
-| 002  | ...   | P1       | M      | 001        | TODO   |
+---
 
-Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | SKIPPED (a dependency is blocked) | REJECTED (with one-line rationale — finding fixed independently or approach abandoned)
+## 3. Task Context Consistency
 
-The "Depends on" column is parsed into `flow.sh add` calls — plan ids only, comma-separated.
+Stale task context is a quality issue, not mere documentation cleanup. Agents read the task
+files as execution input. Reviewers must validate that the task layer remains true to Git.
 
-## Dependency notes
+### Task identity
 
-- 002 requires 001 because <reason>.
+- Task ID is present.
+- Task is linked to its plan.
+- Plan is linked to the actual branch/PR.
 
-## Findings considered and rejected
+### Scope
 
-- <finding>: not worth doing because <one line>. (So nobody re-audits it.)
-```
+- Changed files match the task/plan scope.
+- Unexpected changes are investigated.
 
-## Quality bar — check before finishing each plan
+### Context freshness
 
-- Could a model that has never seen this repo execute this with only the plan file and the repo? If any step requires knowledge from the advisor session, inline that knowledge.
-- Is every verification a command with an expected result, not a judgment ("make sure it works")?
-- Does every step name exact files and symbols, not "the relevant module"?
-- Are the STOP conditions specific to this plan's actual risks, not boilerplate?
-- Would a reviewer reading only "Why this matters" + "Done criteria" understand what they're approving?
-- No secret values anywhere in the file — locations and credential types only.
-- "Planned at" SHA is filled in and the in-scope paths in the drift check match the Scope section.
+- `context.md` still describes the current architecture.
+- stale facts are corrected.
+- superseded decisions are marked.
+
+### Handoff correctness
+
+- changed files match Git
+- listed commits exist
+- verification claims have evidence
+- remaining work is accurate
+
+### Acceptance criteria
+
+- every criterion is explicitly verified
+- unresolved criteria remain unchecked
+
+If `handoff.md` says a file changed but Git says otherwise, the workflow must detect and reconcile
+that discrepancy before execution continues.
+
+---
+
+## 4. Verdicts
+
+Documented deviations are judged on merit, not reflex-blocked. "Do not improvise" exists to
+stop silent drift. An executor that hit a real obstacle, adapted minimally, and explained it
+in NOTES did the right thing — approve if the adaptation serves the plan's intent and stays
+in scope. *Undocumented* deviations are review failures.
+
+| Verdict | When | Action |
+|---|---|---|
+| **APPROVE** | Criteria pass, scope clean, quality holds | `flow.sh set <id> green && flow.sh integrate <id>`; update the index. A conflict (exit 6) returns the plan to review — the executor merges integration and resolves the issue. |
+| **REVISE** | Fixable gaps | `flow.sh revise <id>`, then `SendMessage` to the same executor with specific, actionable feedback ("criterion 3 fails: X; `api.ts:90` swallows the error — use the Result pattern"). |
+| **BLOCK** | STOP condition hit, scope violated unrecoverably, or revisions exhausted | `flow.sh set <id> blocked "<reason>"`. Refine or rewrite the plan with what was learned and requeue (`set <id> pending`). |
+
+Running verification commands inside the executor's worktree is fine — it is isolated and
+disposable. The no-mutating-commands rule protects the user's working tree, not the worktree.
+
+---
+
+## 5. Branch review (Phase 5)
+
+Run in the integration worktree after Phase 4 passed. Audit only the run's changes: files
+changed on `flow/<run>/main` since its base
+(`git -C .flow/integration diff --name-only <base>...HEAD`) plus their direct importers and
+callers. Light recon, all categories, usually no subagents. For a review outside a flow run,
+use the merge-base with the default branch instead.
+
+**Tag every finding `introduced` or `pre-existing`** and separate them in the table. Do not
+blame the branch for legacy debt — but do surface what it is building on top of.
+
+Vet before presenting. Subagents over-report, and three failure classes recur: by-design
+behavior reported as a bug, mis-attributed evidence (real finding, wrong file or line), and
+duplicates. Open the cited code yourself before it reaches the table.
+
+---
+
+## 6. `reconcile` — keep `plans/` alive
+
+Process what happened since the last session. Read `plans/README.md` and each plan, then:
+
+- **DONE** — spot-check that done criteria still hold at current HEAD (cheap ones only).
+  Mark verified. Never delete plan files; they are the record.
+- **BLOCKED** — read the reason, investigate the obstacle, then either rewrite the plan
+  around it (new number if the approach changed fundamentally, in-place refresh otherwise)
+  or mark REJECTED with one line of rationale.
+- **IN PROGRESS (stale)** — an executor probably died mid-run (state says `running` but no
+  agent is alive). Check its branch for commits; `set <id> pending` to requeue, which costs
+  one attempt when re-dispatched.
+- **green but not integrated** — run `flow.sh integrate <id>` before anything else; the next
+  wave depends on it.
+- **TODO** — check the plan is executable *here*: absolute paths, tools, or commands
+  from another machine (`/Users/...`, a local SDK path, a Mac-only command) get rewritten
+  for this environment. Then run the drift check. If drifted, re-verify the finding still exists (it may
+  have been fixed in passing), then refresh excerpts and the `Planned at` SHA. If the
+  finding is gone, mark REJECTED ("fixed independently").
+
+Close with: what is verified done, what was refreshed, what is rejected, what is executable now.
+
+---
+
+## 7. Tone
+
+You are advising, not selling. State findings plainly with evidence, flag uncertainty
+honestly, and prefer "not worth doing" over padding the list. A short list of
+high-confidence findings beats a long one.
+
