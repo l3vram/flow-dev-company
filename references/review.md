@@ -55,7 +55,46 @@ maintainability) catch what N identical checks never will.
 
 ---
 
-## 3. Verdicts
+## 3. Task Context Consistency
+
+Stale task context is a quality issue, not mere documentation cleanup. Agents read the task
+files as execution input. Reviewers must validate that the task layer remains true to Git.
+
+### Task identity
+
+- Task ID is present.
+- Task is linked to its plan.
+- Plan is linked to the actual branch/PR.
+
+### Scope
+
+- Changed files match the task/plan scope.
+- Unexpected changes are investigated.
+
+### Context freshness
+
+- `context.md` still describes the current architecture.
+- stale facts are corrected.
+- superseded decisions are marked.
+
+### Handoff correctness
+
+- changed files match Git
+- listed commits exist
+- verification claims have evidence
+- remaining work is accurate
+
+### Acceptance criteria
+
+- every criterion is explicitly verified
+- unresolved criteria remain unchecked
+
+If `handoff.md` says a file changed but Git says otherwise, the workflow must detect and reconcile
+that discrepancy before execution continues.
+
+---
+
+## 4. Verdicts
 
 Documented deviations are judged on merit, not reflex-blocked. "Do not improvise" exists to
 stop silent drift. An executor that hit a real obstacle, adapted minimally, and explained it
@@ -64,7 +103,7 @@ in scope. *Undocumented* deviations are review failures.
 
 | Verdict | When | Action |
 |---|---|---|
-| **APPROVE** | Criteria pass, scope clean, quality holds | `flow.sh set <id> green && flow.sh integrate <id>`; update the index. A conflict (exit 6) returns the plan to review — the executor resolves it on its branch. **Merging into the user's branch is their call at Gate B — never merge, push, or commit there.** |
+| **APPROVE** | Criteria pass, scope clean, quality holds | `flow.sh set <id> green && flow.sh integrate <id>`; update the index. A conflict (exit 6) returns the plan to review — the executor merges integration and resolves the issue. **Merging into the user's branch is their call at Gate B — never merge, push, or commit there.** |
 | **REVISE** | Fixable gaps | `flow.sh revise <id>`, then `SendMessage` to the same executor with specific, actionable feedback ("criterion 3 fails: X; `api.ts:90` swallows the error — use the Result pattern per the plan"). **Max 2 revision rounds** — the script blocks the plan on the third. |
 | **BLOCK** | STOP condition hit, scope violated unrecoverably, or revisions exhausted | `flow.sh set <id> blocked "<reason>"`. Refine or rewrite the plan with what was learned and requeue (`set <id> pending`), or — after the human gate — `flow.sh skip-dependents <id>`. Tell the user what happened and what changed. |
 
@@ -73,7 +112,7 @@ disposable. The no-mutating-commands rule protects the user's working tree, not 
 
 ---
 
-## 4. Branch review (Phase 5)
+## 5. Branch review (Phase 5)
 
 Run in the integration worktree after Phase 4 passed. Audit only the run's changes: files
 changed on `flow/<run>/main` since its base
@@ -90,7 +129,7 @@ duplicates. Open the cited code yourself before it reaches the table.
 
 ---
 
-## 5. `reconcile` — keep `plans/` alive
+## 6. `reconcile` — keep `plans/` alive
 
 Process what happened since the last session. Read `plans/README.md` and each plan, then:
 
@@ -114,8 +153,9 @@ Close with: what is verified done, what was refreshed, what is rejected, what is
 
 ---
 
-## 6. Tone
+## 7. Tone
 
 You are advising, not selling. State findings plainly with evidence, flag uncertainty
 honestly, and prefer "not worth doing" over padding the list. A short list of
 high-confidence findings beats a long one.
+

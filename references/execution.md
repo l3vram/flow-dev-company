@@ -9,6 +9,45 @@ Planner→Executor→Reviewer architecture common to AgentMesh/CrewAI/AutoGen.
 
 ---
 
+## Task context before execution
+
+Before modifying code, every executor must read the task context and reconcile it against Git:
+
+```text
+1. Read the complete task context:
+   - tasks/TASK-xxx/task.md
+   - tasks/TASK-xxx/context.md
+   - tasks/TASK-xxx/handoff.md
+   - tasks/TASK-xxx/decisions.md
+   - tasks/TASK-xxx/investigation.md when relevant
+
+2. Inspect:
+   - git status
+   - task-related git log
+   - current branch
+   - relevant diff
+
+3. Verify the handoff matches the repository.
+
+If task context and Git disagree:
+STOP, identify the discrepancy, update the task context if safe, and report it.
+
+Before returning:
+- update handoff.md
+- record actual verification results
+- record actual commits
+- record remaining work
+- commit the task-context update with the task ID
+```
+
+`flow.sh` remains the run-state machine for orchestration. `tasks/TASK-xxx/*` remains the
+durable engineering context for the task. Do not merge them into a second state machine.
+
+The executor must not rely on conversation history. The repository and the task files are the
+source of truth.
+
+---
+
 ## 1. Waves — derive parallelism, don't guess it
 
 Read the dependency graph in `plans/README.md` and layer it topologically (Kahn):
@@ -90,15 +129,24 @@ uncommitted, the executor cannot read it. Never assume it can.
 
 **Executor preamble** (part of the stable prefix):
 
-> You are the executor for the plan below. First, in your worktree, run
-> `git switch -c flow/<run>/<id> flow/<run>/main` — you build on the integrated work, not
-> the original base. Follow the plan step by step. Run every verification
-> command and confirm the expected result before continuing. Touch only in-scope files. On
-> any STOP condition, stop immediately and report — do not improvise around obstacles.
+> You are the executor for the plan below. Before modifying code, read the task context in
+> `tasks/TASK-xxx/task.md`, `context.md`, `handoff.md`, `decisions.md`, and `investigation.md`
+> when relevant. Then inspect `git status`, the task-related `git log`, the current branch,
+> and the relevant diff. Verify the handoff matches the repository. If the task context and
+> Git disagree, STOP, identify the discrepancy, update the task context if safe, and report it.
+>
+> Build on the integrated work, not the original base: in your worktree, run
+> `git switch -c flow/<run>/<id> flow/<run>/main` before touching code. Then follow the plan step by step, and run every verification command and confirm the expected
+> result before continuing. Touch only in-scope files. On any STOP condition, stop immediately
+> and report — do not improvise around obstacles.
+>
 > Commit on that branch per the plan's git workflow; never push. Do not edit
 > `plans/README.md` — your reviewer maintains the index. Before reporting, audit every claim
 > against an actual tool result from this session — report only what you have evidence for;
 > if a verification failed or was skipped, say so plainly.
+>
+> Before returning, update `handoff.md`, record actual verification results, actual commits,
+> remaining work, and the task-context update with the task ID.
 
 **Fresh-worktree note**: worktrees share git history but not `node_modules` or build
 artifacts. The executor installs dependencies first, and tooling that resolves from `dist/`
@@ -186,3 +234,18 @@ If you generate a real orchestration script: no `Date.now()`, `Math.random()`, o
 - **Team mode** (only if `TeamCreate`/`SendMessage` exist): peer-to-peer agents on a shared
   task list — worth the extra coordination cost only when two plans must negotiate live.
   Default to subagent mode; team mode multiplies context, and context is the budget.
+
+---
+
+## 8. Handoff and Git-driven continuation
+
+A handoff is a proof artifact, not a transcript. The next agent must verify:
+
+- the task identity and file paths are correct
+- the listed files match the current Git diff
+- the commit list matches the branch history
+- the verification result has evidence
+- the remaining work matches the actual repo state
+
+If it does not, the handoff is stale and must be corrected before continuing.
+
