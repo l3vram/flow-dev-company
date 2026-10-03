@@ -1,322 +1,111 @@
-# Handoff Template — handoff.md
+# Decisions Template — decisions.md
 
-Use this template for `tasks/TASK-<number>/handoff.md`. Required for all non-trivial tasks.
+Use this template for `tasks/TASK-<number>/decisions.md`. Required for Tier 3 tasks only.
 
-For Tier 2 tasks, use a simple one-pass handoff. For Tier 3 tasks, use the iteration log format.
+Decisions are frozen once recorded. If a decision changes, create a new entry that supersedes the prior one. This preserves the reasoning chain.
 
 ---
-
-## Tier 2 Handoff (simple, single-pass)
 
 ```markdown
-# Handoff — TASK-<number>
+# Decisions — TASK-<number>
 
-## Task
+## DEC-<number>-01 — <decision title>
 
-TASK-<number> — <title>
+**Status**: ACCEPTED
 
-## Agent
+### Decision
 
-<model/role>
+<What was decided, stated clearly and briefly.>
 
-## Status
+Example: "Use HS256 with server-side secret for JWT signing, not RS256."
 
-IMPLEMENTING | VALIDATING | REVIEW | BLOCKED | DONE
+### Context
 
-## Completed in this turn
+<Why a decision was needed.>
 
-- ...
-- ...
+Example: "RS256 requires key rotation infrastructure we don't have. HS256 is simpler and sufficient for our use case."
 
-## Current implementation
+### Alternatives considered
 
-<Short factual description of what exists now.>
+1. RS256 with key rotation
+2. HS256 with client-side secret (shared)
+3. OAuth2 with external provider
 
-## Files changed
+### Rationale
 
-- `path`
-- `path`
+<Short factual reasoning. 2–3 sentences.>
 
-## Commits
+Example: "HS256 requires only one secret stored on the server. Key rotation is manual but infrequent. RS256 adds operational overhead without benefit for our scale."
 
-- `<sha>` — <message>
-- `<sha>` — <message>
+### Consequences
 
-## Verification
+- JWT signing happens server-side only
+- Token validation requires the server secret
+- Secret rotation requires downtime or cache invalidation
+- Cannot delegate token validation to a separate microservice
 
-- `<command>` — PASS | FAIL | NOT RUN
-- `<command>` — PASS | FAIL | NOT RUN
+### Evidence
 
-Never claim PASS without evidence from this session.
-
-## Known issues (if any)
-
-- ...
-
-## Remaining work
-
-- ...
-
-## Exact next action
-
-<One concrete next action for the next agent or human.>
-
-## Do not redo
-
-- ...
-```
+- Issue: <URL or none>
+- Commit: `<sha>` or `<sha range>`
+- File: `path/to/file:line`
+- ADR or decision doc: <URL or path>
 
 ---
 
-## Tier 3 Handoff (iteration log)
+## DEC-<number>-02 — <decision title>
 
-For complex or multi-agent tasks, keep an iteration log with entry/exit timestamps.
+**Status**: ACCEPTED (supersedes DEC-<number>-01)
 
-```markdown
-# Handoff — TASK-<number>
+### Decision
 
-## Task
+<New decision that overrides the prior one.>
 
-TASK-<number> — <title>
+Example: "Switch to RS256 with automated key rotation via HashiCorp Vault."
 
-## Current status
+### Context
 
-BACKLOG | READY | ANALYZING | IMPLEMENTING | VALIDATING | REVIEW | BLOCKED | DONE
+<Why the prior decision no longer holds.>
 
----
+Example: "We now have Vault deployed in production. Key rotation is automated. The operational overhead is zero. RS256 is now the better choice because it allows stateless token validation."
 
-## Iteration 1
+### Alternatives considered
 
-### Agent entry
+1. Keep HS256 as is
+2. Switch to RS256 with Vault
+3. Switch to OAuth2
 
-- **Agent**: <model/role>
-- **Time in**: <ISO timestamp, e.g. 2026-10-03T14:22:00Z>
-- **Entry status**: READY
-- **Base branch**: `flow/<run>/main` or task branch name
-- **Base commit**: `<sha>`
+### Rationale
 
-### Work completed
+<Reasoning for this new decision.>
 
-- Analyzed repository structure
-- Implemented core feature
-- Added tests
+Example: "Vault removes the operational friction. RS256 with automated rotation is now preferred because microservices can validate tokens without the server secret."
 
-### Files changed
+### Consequences
 
-- `src/orders/api.ts`
-- `src/orders/api.test.ts`
+- Token validation can happen offline or in separate services
+- Public key is published; private key is in Vault only
+- Key rotation is transparent to applications
+- Dependency on Vault availability
 
-### Commits
+### Evidence
 
-- `<sha>` — feat: implement denomination resolver
-- `<sha>` — test: add denomination resolver tests
-
-### Verification
-
-- `pnpm typecheck` — PASS
-- `pnpm test` — PASS (all tests pass, 5 new tests added)
-- `pnpm lint` — PASS
-- Smoke: `npm run test:e2e` — PASS
-
-Evidence: all commands run in this session; output confirms success.
-
-### Important discoveries
-
-- Existing movement records can be reused; full implementation possible.
-
-### Decisions made
-
-- DEC-<number>-01 — use debt fallback strategy
-
-### Known issues
-
-- None
-
-### Remaining work
-
-- Prepare for review
-- Wait for approval to merge
-
-### Exact next action
-
-Reviewer: run full test suite and review diff against plan.
-
-### Agent exit
-
-- **Agent**: <model/role>
-- **Time out**: <ISO timestamp>
-- **Exit status**: VALIDATING
-- **Branch**: `flow/<run>/001` or task branch name
-- **HEAD commit**: `<sha>`
+- Issue: <URL>
+- Commit: `<sha>`
+- File: `path/to/file`
 
 ---
 
-## Iteration 2
-
-### Agent entry
-
-- **Agent**: claude-3-5-opus (reviewer)
-- **Time in**: <ISO timestamp>
-- **Entry status**: VALIDATING
-- **Task branch**: `flow/<run>/001`
-- **Base commit (for review)**: `<original-base-sha>`
-- **Task HEAD**: `<current-sha>`
-
-### Work completed
-
-- Reviewed full diff
-- Ran full test suite
-- Verified against plan
-- Found one issue in error path
-
-### Verification
-
-- `pnpm test` — PASS (all 2,341 tests)
-- Diff review — PASS (scope matches plan, no unexpected changes)
-- Error handling — FAIL: missing try/catch at api.ts:145
-
-### Issues found
-
-- Error path not covered: what if index creation fails? Add try/catch.
-
-### Decisions made
-
-- None
-
-### Remaining work
-
-- Executor revises error handling
-- Re-run tests
-- Final approval
-
-### Exact next action
-
-Executor: add try/catch around index creation at api.ts:145, add test for error case.
-
-### Agent exit
-
-- **Agent**: claude-3-5-opus
-- **Time out**: <ISO timestamp>
-- **Exit status**: REVIEW (requires revision)
-- **Branch**: `flow/<run>/001` (no changes by reviewer)
-- **HEAD commit**: `<sha>` (same as entry)
-
----
-
-## Iteration 3
-
-### Agent entry
-
-- **Agent**: claude-3-5-sonnet (revision)
-- **Time in**: <ISO timestamp>
-- **Entry status**: IMPLEMENTING
-- **Task branch**: `flow/<run>/001`
-- **Previous exit HEAD**: `<previous-sha>`
-
-### Work completed
-
-- Added try/catch for index creation
-- Added test case for error scenario
-- Verified all tests pass
-
-### Files changed
-
-- `src/orders/api.ts`
-- `src/orders/api.test.ts`
-
-### Commits
-
-- `<sha>` — fix: add error handling for index creation
-- `<sha>` — test: cover index creation error case
-
-### Verification
-
-- `pnpm test` — PASS (all 2,341 + 1 new test)
-- `pnpm typecheck` — PASS
-- `pnpm lint` — PASS
-
-### Important discoveries
-
-- None
-
-### Decisions made
-
-- None (revision only)
-
-### Remaining work
-
-- Final review and approval
-
-### Exact next action
-
-Reviewer: approve and merge.
-
-### Agent exit
-
-- **Agent**: claude-3-5-sonnet
-- **Time out**: <ISO timestamp>
-- **Exit status**: REVIEW (ready for final approval)
-- **Branch**: `flow/<run>/001`
-- **HEAD commit**: `<sha>`
-
----
-
-## Iteration 4 (final approval)
-
-### Agent entry
-
-- **Agent**: reviewer (final)
-- **Time in**: <ISO timestamp>
-- **Entry status**: REVIEW
-
-### Work completed
-
-- Confirmed error handling is correct
-- Verified all tests pass
-- Approved for merge
-
-### Verification
-
-- `pnpm test` — PASS
-- Diff against plan — PASS (scope OK, no unexpected changes)
-
-### Decisions made
-
-- None
-
-### Exact next action
-
-Merge `flow/<run>/001` into `flow/<run>/main`.
-
-### Agent exit
-
-- **Agent**: reviewer
-- **Time out**: <ISO timestamp>
-- **Exit status**: DONE
-- **Branch**: `flow/<run>/001`
-- **HEAD commit**: `<sha>`
-
----
-
-## Final state
-
-- **Status**: DONE
-- **Total iterations**: 4
-- **Total time**: ~2 hours
-- **Merged**: yes, into `flow/<run>/main` via commit `<merge-sha>`
-- **PR**: <URL or none>
-
-*Do not redo:*
-- Error handling — verified in tests
-- Index creation — working as expected
+## (No more decisions)
 ```
 
 ---
 
 ## Notes
 
-- Handoff is a proof artifact, not a chat log.
-- Every iteration must have entry/exit timestamps so the next agent knows exactly where to pick up.
-- Verification must have evidence: PASS/FAIL/NOT RUN, never guesses.
-- Each iteration is independent; the next agent reads only the current and prior states.
-- Do not duplicate the plan; reference the plan when relevant.
+- Decisions are immutable once recorded.
+- If a decision is wrong, do not edit it; create a new decision that supersedes it.
+- This preserves the reasoning chain: future maintainers can see why a decision was made and why it changed.
+- Keep decisions short but complete: 1 page per decision max.
+- Reference commit SHAs and file paths for evidence.
+- Use the "supersedes" pattern when decisions change to keep the audit trail.

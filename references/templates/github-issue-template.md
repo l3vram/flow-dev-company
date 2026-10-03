@@ -1,107 +1,120 @@
-# Investigation Template — investigation.md
+# GitHub Issue Template — material findings and errors
 
-Use this template for `tasks/TASK-<number>/investigation.md`. Required for Tier 3 tasks; optional for Tier 2.
+Use this template when creating a GitHub Issue for a discovered bug, investigation finding, or material error.
 
-Use this to record discoveries that were not known when the task was created and that materially affect implementation.
+**Remember:** Issues are optional, explicit, and linked back to the repository source of truth. The issue is a pointer and collaboration surface, not the detailed implementation log.
 
 ---
 
 ```markdown
-# Investigation — TASK-<number>
+# <issue title>
 
-## 2026-10-03 14:22 UTC — Existing movement records can be reused
+## Objective
 
-### Finding
+<What needs to be fixed, tracked, or coordinated. 1–2 sentences.>
 
-The database contains 47 movement records from a prior integration that were never fully utilized. These records have the exact structure we need for the denomination resolver. We can reuse them without schema changes.
+Example:
+"The order list endpoint has an N+1 query that causes timeouts on accounts with > 10K orders. This needs to be fixed before the feature goes into production."
 
-### Evidence
+## Evidence
 
-- `src/db/migrations/009_create_movements.sql:10–30` — movement table schema
-- command `SELECT COUNT(*) FROM movements WHERE purpose='denomination_exchange';` → 47 rows
-- commit `a1b2c3d` — initial movement table design in 2024-03
+- `src/orders/api.ts:130–160` — order list endpoint code
+- command `npm run profile -- orders/list --users=1000` → observed 47 database queries for 47 API calls
+- commit `a1b2c3d` — introduced the query pattern
+- issue #123 — related: "Orders page slow on large accounts"
 
-### Impact
+## Impact
 
-We do not need a new table or migration. Implementation is simpler. Reuse reduces database friction and keeps the schema stable.
+<What is the consequence if this is not fixed. How severe is it.>
 
-### Action
+Example:
+"Accounts with > 10K orders cannot use the order list feature. Page load times exceed 30 seconds. Production SLA is 2 seconds. This is a P1 blocker."
 
-Update the plan to point to the existing movement table instead of creating a new table. Mark plan step "Create denomination resolver table" as SUPERSEDED.
+## Scope
+
+### In scope
+
+- Fix the N+1 query in the order list endpoint
+- Add database index on `orders.created_at`
+- Add test for the query performance
+
+### Out of scope
+
+- Other order-related endpoints (handled separately)
+- Client-side pagination changes
+- Cache layer (future work)
+
+## Acceptance criteria
+
+- [ ] Order list endpoint uses a single query (verified with query profiler)
+- [ ] Index on `orders.created_at` is created
+- [ ] Load test passes: 10K orders, < 2 second response time
+- [ ] Test added to prevent regression
+- [ ] No changes to the public API response shape
+
+## Related
+
+- Task: `tasks/TASK-089/`
+- Plan: `plans/089-orders-n1-fix.md`
+- Branch: `flow/<run-id>/089`
+- PR: <link when available> or `none`
+
+## Suggested approach
+
+<Optional: a brief pointer to how this might be solved.>
+
+Example:
+"Use a JOIN with GROUP BY instead of the loop. See similar pattern in `src/users/api.ts:45–80`."
+
+## Labels
+
+- `bug`
+- `performance`
+- `p1`
+- `orders`
 
 ---
 
-## 2026-10-03 15:30 UTC — Refresh token rotation works correctly
-
-### Finding
-
-Tested the refresh token rotation logic with 10 concurrent requests. All tokens were correctly invalidated and rotated. No race conditions detected.
-
-### Evidence
-
-- command `npm run test:e2e -- auth/refresh-rotation` → PASS (10 concurrent, 0 failures)
-- test file: `src/__tests__/auth/refresh-rotation.test.ts:45–120`
-- commit `f1e2d3c` — refresh rotation implementation
-
-### Impact
-
-The refresh token implementation is production-ready. No additional robustness work needed.
-
-### Action
-
-No changes to plan. Mark this as verified and ready for review.
-
----
-
-## 2026-10-03 16:15 UTC — Index creation locks writes for ~2 seconds
-
-### Finding
-
-Added an index on the `orders.created_at` column. The lock duration was measured:
-
+*This issue was created as part of TASK-089. Implementation will proceed in the linked task and plan files, which are the source of truth. This issue tracks the coordination and serves as a search/discovery surface.*
 ```
-BEFORE INDEX: SELECT COUNT(*) FROM orders → ~100K rows
-INDEX CREATION: ~2 seconds of write lock observed
-AFTER INDEX: SELECT COUNT(*) FROM orders → 100K rows, index is used
-```
-
-### Evidence
-
-- command `CREATE INDEX CONCURRENTLY idx_orders_created_at ON orders(created_at);` → 2.1 second lock observed
-- PostgreSQL logs: `2026-10-03 16:15:00 WARNING: … EXCLUSIVE LOCK …`
-- production table: `orders` has 103K rows
-
-### Impact
-
-Index creation with `CONCURRENTLY` is safe for our data size. No application downtime needed. Lock is acceptable.
-
-### Action
-
-Use `CREATE INDEX CONCURRENTLY` in the migration. No additional coordination needed.
 
 ---
 
-## 2026-10-03 17:00 UTC — SUPERSEDED: 47 existing movement records
+## When to create an issue
 
-*This finding is SUPERSEDED by a later discovery.*
+Create a GitHub Issue when:
 
-Original: Existing movement records can be reused.
+1. **Material severity**: the bug/finding is important enough to survive this task
+2. **Cross-team coordination**: multiple teams or future work depends on it
+3. **External tracking**: stakeholders outside the immediate task need visibility
+4. **Significant scope**: the fix is large and deserves its own project/epic
 
-Superseded by: The movement table was deprecated in commit `g2f3e4d`. We must use the new `denomination_changes` table instead.
+**Do not create an issue** for:
 
-New approach: Migrate existing records to the new schema. This is a small operation and will be done as part of the plan.
+- Trivial findings that will be fixed in the current task
+- Internal notes that do not require external coordination
+- Work that stays within a single task
 
 ---
 
-## (No more investigations)
+## Issue link pattern
+
+Always link the issue back to the repository source of truth:
+
+```markdown
+- Task: `tasks/TASK-xxx/`
+- Plan: `plans/NNN-*.md`
+- Branch: `flow/<run>/<id>`
 ```
+
+This way, the issue is a pointer to the real work, not a duplicate.
 
 ---
 
 ## Notes
 
-- Every investigation entry must have a timestamp in `YYYY-MM-DD HH:MM UTC` format.
-- Evidence is required: never speculate.
-- Mark findings as `SUPERSEDED` when a later discovery makes them obsolete.
-- Investigation entries are additive; do not delete them.
-- This is where the next agent learns what was discovered and how it changed the work.
+- Keep the issue concise: 200–300 words max.
+- Link to file paths and commits for evidence.
+- Do not paste entire code blocks; reference them by file:line.
+- Acceptance criteria should be machine-checkable.
+- Update the issue only at meaningful milestones, not every agent turn.

@@ -1,111 +1,107 @@
-# Decisions Template — decisions.md
+# Investigation Template — investigation.md
 
-Use this template for `tasks/TASK-<number>/decisions.md`. Required for Tier 3 tasks only.
+Use this template for `tasks/TASK-<number>/investigation.md`. Required for Tier 3 tasks; optional for Tier 2.
 
-Decisions are frozen once recorded. If a decision changes, create a new entry that supersedes the prior one. This preserves the reasoning chain.
+Use this to record discoveries that were not known when the task was created and that materially affect implementation.
 
 ---
 
 ```markdown
-# Decisions — TASK-<number>
+# Investigation — TASK-<number>
 
-## DEC-<number>-01 — <decision title>
+## 2026-10-03 14:22 UTC — Existing movement records can be reused
 
-**Status**: ACCEPTED
+### Finding
 
-### Decision
-
-<What was decided, stated clearly and briefly.>
-
-Example: "Use HS256 with server-side secret for JWT signing, not RS256."
-
-### Context
-
-<Why a decision was needed.>
-
-Example: "RS256 requires key rotation infrastructure we don't have. HS256 is simpler and sufficient for our use case."
-
-### Alternatives considered
-
-1. RS256 with key rotation
-2. HS256 with client-side secret (shared)
-3. OAuth2 with external provider
-
-### Rationale
-
-<Short factual reasoning. 2–3 sentences.>
-
-Example: "HS256 requires only one secret stored on the server. Key rotation is manual but infrequent. RS256 adds operational overhead without benefit for our scale."
-
-### Consequences
-
-- JWT signing happens server-side only
-- Token validation requires the server secret
-- Secret rotation requires downtime or cache invalidation
-- Cannot delegate token validation to a separate microservice
+The database contains 47 movement records from a prior integration that were never fully utilized. These records have the exact structure we need for the denomination resolver. We can reuse them without schema changes.
 
 ### Evidence
 
-- Issue: <URL or none>
-- Commit: `<sha>` or `<sha range>`
-- File: `path/to/file:line`
-- ADR or decision doc: <URL or path>
+- `src/db/migrations/009_create_movements.sql:10–30` — movement table schema
+- command `SELECT COUNT(*) FROM movements WHERE purpose='denomination_exchange';` → 47 rows
+- commit `a1b2c3d` — initial movement table design in 2024-03
+
+### Impact
+
+We do not need a new table or migration. Implementation is simpler. Reuse reduces database friction and keeps the schema stable.
+
+### Action
+
+Update the plan to point to the existing movement table instead of creating a new table. Mark plan step "Create denomination resolver table" as SUPERSEDED.
 
 ---
 
-## DEC-<number>-02 — <decision title>
+## 2026-10-03 15:30 UTC — Refresh token rotation works correctly
 
-**Status**: ACCEPTED (supersedes DEC-<number>-01)
+### Finding
 
-### Decision
-
-<New decision that overrides the prior one.>
-
-Example: "Switch to RS256 with automated key rotation via HashiCorp Vault."
-
-### Context
-
-<Why the prior decision no longer holds.>
-
-Example: "We now have Vault deployed in production. Key rotation is automated. The operational overhead is zero. RS256 is now the better choice because it allows stateless token validation."
-
-### Alternatives considered
-
-1. Keep HS256 as is
-2. Switch to RS256 with Vault
-3. Switch to OAuth2
-
-### Rationale
-
-<Reasoning for this new decision.>
-
-Example: "Vault removes the operational friction. RS256 with automated rotation is now preferred because microservices can validate tokens without the server secret."
-
-### Consequences
-
-- Token validation can happen offline or in separate services
-- Public key is published; private key is in Vault only
-- Key rotation is transparent to applications
-- Dependency on Vault availability
+Tested the refresh token rotation logic with 10 concurrent requests. All tokens were correctly invalidated and rotated. No race conditions detected.
 
 ### Evidence
 
-- Issue: <URL>
-- Commit: `<sha>`
-- File: `path/to/file`
+- command `npm run test:e2e -- auth/refresh-rotation` → PASS (10 concurrent, 0 failures)
+- test file: `src/__tests__/auth/refresh-rotation.test.ts:45–120`
+- commit `f1e2d3c` — refresh rotation implementation
+
+### Impact
+
+The refresh token implementation is production-ready. No additional robustness work needed.
+
+### Action
+
+No changes to plan. Mark this as verified and ready for review.
 
 ---
 
-## (No more decisions)
+## 2026-10-03 16:15 UTC — Index creation locks writes for ~2 seconds
+
+### Finding
+
+Added an index on the `orders.created_at` column. The lock duration was measured:
+
+```
+BEFORE INDEX: SELECT COUNT(*) FROM orders → ~100K rows
+INDEX CREATION: ~2 seconds of write lock observed
+AFTER INDEX: SELECT COUNT(*) FROM orders → 100K rows, index is used
+```
+
+### Evidence
+
+- command `CREATE INDEX CONCURRENTLY idx_orders_created_at ON orders(created_at);` → 2.1 second lock observed
+- PostgreSQL logs: `2026-10-03 16:15:00 WARNING: … EXCLUSIVE LOCK …`
+- production table: `orders` has 103K rows
+
+### Impact
+
+Index creation with `CONCURRENTLY` is safe for our data size. No application downtime needed. Lock is acceptable.
+
+### Action
+
+Use `CREATE INDEX CONCURRENTLY` in the migration. No additional coordination needed.
+
+---
+
+## 2026-10-03 17:00 UTC — SUPERSEDED: 47 existing movement records
+
+*This finding is SUPERSEDED by a later discovery.*
+
+Original: Existing movement records can be reused.
+
+Superseded by: The movement table was deprecated in commit `g2f3e4d`. We must use the new `denomination_changes` table instead.
+
+New approach: Migrate existing records to the new schema. This is a small operation and will be done as part of the plan.
+
+---
+
+## (No more investigations)
 ```
 
 ---
 
 ## Notes
 
-- Decisions are immutable once recorded.
-- If a decision is wrong, do not edit it; create a new decision that supersedes it.
-- This preserves the reasoning chain: future maintainers can see why a decision was made and why it changed.
-- Keep decisions short but complete: 1 page per decision max.
-- Reference commit SHAs and file paths for evidence.
-- Use the "supersedes" pattern when decisions change to keep the audit trail.
+- Every investigation entry must have a timestamp in `YYYY-MM-DD HH:MM UTC` format.
+- Evidence is required: never speculate.
+- Mark findings as `SUPERSEDED` when a later discovery makes them obsolete.
+- Investigation entries are additive; do not delete them.
+- This is where the next agent learns what was discovered and how it changed the work.

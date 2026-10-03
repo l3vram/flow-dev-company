@@ -18,7 +18,7 @@ Self-contained: **nothing else to install.**
 
 ## How it works
 
-```
+```text
 0 Start/Resume → 1 Enrich → 2 Plan → 🚦GATE A → 3 Execute (waves) → 4 Verify → 5 Review → 🚦GATE B → 6 Handoff
                  (questions  (advisor   human    (parallel fleet,    (tests +   (branch   human   (docs)
                   → SPEC.md)  brain)             integrated per     smoke run) review)
@@ -51,6 +51,38 @@ Self-contained: **nothing else to install.**
   blocked/skipped plan listed and a token ledger for the run.
 
 Details in [`SKILL.md`](SKILL.md) and the `references/` files it loads per phase.
+
+## Git-native task context
+
+`flow-dev-company` treats Git as part of the durable development memory. A meaningful task has a
+stable identity and a small set of versioned context files. Agents use those files together with
+Git history and diffs instead of relying on conversation history.
+
+```text
+tasks/
+└── TASK-142/
+    ├── task.md
+    ├── context.md
+    ├── investigation.md
+    ├── decisions.md
+    └── handoff.md
+```
+
+And the overall flow is:
+
+```text
+Issue → Task → Plan → Branch → Commits → PR → Merge
+```
+
+The distinction is important:
+
+- Issue = collaboration/index
+- Task = durable work identity
+- Plan = implementation procedure
+- Git = implementation evidence
+- Basic Memory = reusable project knowledge
+
+This keeps GitHub issues as a useful index surface without making them the task source of truth.
 
 ## Token discipline
 
@@ -113,11 +145,13 @@ Test the plumbing:
 
 ## Structure
 
-```
+```text
 flow-dev-company/
   SKILL.md                     # the orchestrator — thin index, one reference per phase
+  README.md                    # overview and Git-native task context documentation
   references/
     planning.md                # advisor brain: greenfield + recon/audit → plans
+    task-context.md            # normative Task Context protocol for tasks, handoff, and review
     review.md                  # risk router, four-layer gauntlet, verdicts, reconcile
     execution.md               # waves, agent roster, dispatch, return contract, state
     token-budget.md            # where tokens go, language policy, tiering, cache discipline
@@ -147,3 +181,4 @@ flow-dev-company/
 ## License
 
 MIT — see [`LICENSE`](LICENSE). Includes third-party MIT portions (see Credits).
+
