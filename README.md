@@ -43,7 +43,9 @@ Self-contained: **nothing else to install.**
 - **Verify** — on the integrated result: every plan's done criteria (build/test/lint) **plus a
   smoke run** that boots the product and drives its main flow. When the product cannot
   start in the environment (no mobile SDK, no device), it falls back to the highest runnable
-  layer and reports the smoke as *substituted* — never as a pass. Deterministic, blocking.
+  layer and reports the smoke as *substituted* — never as a pass. A substitute needs an owner
+  and the exact device/environment check that closes it; it lands in the task handoff and the
+  task cannot be marked done until the owner records the real result. Deterministic, blocking.
 - **Risk-routed review** — a router decides the review budget per diff: high-risk changes
   (auth, payments, crypto, migrations, new deps, large diffs) get the full four-layer gauntlet
   on the expensive tier; everything else gets spec-compliance + correctness on a cheaper one.
@@ -140,7 +142,7 @@ orchestrator falls back to maintaining state itself and says so.
 Test the plumbing:
 
 ```bash
-~/.claude/skills/flow-dev-company/scripts/test-flow.sh   # 52 checks, throwaway git repo
+~/.claude/skills/flow-dev-company/scripts/test-flow.sh   # 61 checks, throwaway git repo
 ```
 
 ## Structure

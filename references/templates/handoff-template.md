@@ -53,6 +53,12 @@ Never claim PASS without evidence from this session.
 
 - ...
 
+## Open verification (only when the smoke was substituted)
+- Owner: <who runs it — has the device/environment>
+- Check: <environment> — <steps> — <expected result>
+- Ran instead: <the substitute layer and its result>
+- Closed by: `flow.sh smoke verified "<evidence>"` — task stays VALIDATING until then
+
 ## Remaining work
 
 - ...

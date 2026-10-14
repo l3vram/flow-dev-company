@@ -219,7 +219,9 @@ context loss, drives the panel, and enforces the retry ceiling.
       "branch": "flow/2026-07-31-chatbot/002", "integrated": false }
   ],
   "budget": { "by_phase": {}, "by_tier": {}, "by_plan": {}, "spawns": 0, "inline": 0, "unreported": [] },
-  "smoke": { "result": "substituted", "detail": "no Android SDK — ViewModel tests" }
+  "smoke": { "result": "substituted", "detail": "no Android SDK — ViewModel tests",
+             "owner": "@maintainer", "check": "Pixel 8, Android 14: send a message, see the reply",
+             "verified": false }
 }
 ```
 

@@ -216,9 +216,12 @@ In the **integration worktree** (`.flow/integration`), where all plans meet:
    in-process integration test that goes through the real entry point → tests at the
    state-holder boundary (ViewModel, controller, service) driving the smoke scenario's steps
    → unit tests of the changed logic. Record it with
-   `flow.sh smoke substituted "<why> — <what ran instead>"`; otherwise
-   `flow.sh smoke pass|fail "<command>"`. A substitute is never silently called a pass: Gate B
-   shows it, and the user is told what still needs a real device or environment to confirm.
+   `flow.sh smoke substituted "<why> — <what ran instead>" <owner> "<device/env check>"`;
+   otherwise `flow.sh smoke pass|fail "<command>"`. A substitute is never silently called a
+   pass, and it is a gap someone must close: it names an **owner** (who has the device or
+   environment — ask the user if unknown) and the **exact check** (environment, steps,
+   expected result). Gate B shows it; the orchestrator writes it to `handoff.md` under
+   **Open verification**. The owner closes it with `flow.sh smoke verified "<evidence>"`.
 
 Deterministic and blocking. A failure becomes a fix plan and requeues to execution.
 
@@ -395,6 +398,9 @@ A task may enter `DONE` only when:
 - `handoff.md` contains final state
 - PR/merge reference is recorded when applicable
 - known limitations are documented
+- no verification is open: `flow.sh verify-open` exits 0. A substituted smoke keeps the task
+  in `VALIDATING` until its owner records `flow.sh smoke verified "<evidence>"`, even after
+  Gate B merges the code
 
 The task is durable engineering context; the orchestration run state remains ephemeral.
 

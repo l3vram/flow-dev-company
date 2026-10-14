@@ -18,7 +18,11 @@
 #   flow.sh skip-dependents <id>            mark every transitive dependent of <id> skipped
 #   flow.sh wave-done                       exit 0 if every plan in the current wave is settled
 #   flow.sh advance                         move to next wave (only if current is settled)
-#   flow.sh smoke <pass|fail|substituted> <detail>     record the Phase 4 smoke result
+#   flow.sh smoke <pass|fail> <detail>      record the Phase 4 smoke result
+#   flow.sh smoke substituted <detail> <owner> <check>   product could not start here: name who
+#                                           runs the real device/environment check, and the check
+#   flow.sh smoke verified <evidence>       close a substituted smoke with real-device evidence
+#   flow.sh verify-open                     exit 1 while a substituted smoke is unverified
 #   flow.sh budget <id> <tokens|null> <tier> <phase> [spawn|inline]
 #                                           append to the ledger; only `spawn` counts as an agent
 #   flow.sh panel                           render the fleet table
@@ -303,12 +307,36 @@ cmd_budget() {
 
 # Phase 4's smoke result. `substituted` = the product could not be started here (no SDK,
 # device, or credentials) and a lower layer was exercised instead — Gate B must show it.
+# A substitute opens a verification gap, so it needs an owner and the exact device/environment
+# check that closes it; `verified` closes it with evidence.
 cmd_smoke() {
   need_state
-  one_of "${1:-}" pass fail substituted || die "smoke result must be pass, fail or substituted"
+  one_of "${1:-}" pass fail substituted verified || die "smoke result must be pass, fail, substituted or verified"
+  if [ "$1" = verified ]; then
+    [ "$(jq -r '.smoke.result // empty' "$STATE")" = substituted ] \
+      || die "nothing to verify — 'verified' closes a substituted smoke"
+    [ -n "${2:-}" ] || die "verified needs evidence: device/environment and the observed result"
+    write --arg e "$2" '.smoke.verified = true | .smoke.evidence = $e'
+    echo "smoke verified ($2)"; return
+  fi
   [ -n "${2:-}" ] || die "smoke needs a detail: the command run, or for 'substituted' why and what ran instead"
+  if [ "$1" = substituted ]; then
+    [ -n "${3:-}" ] || die "substituted smoke needs an owner — who runs the real check"
+    [ -n "${4:-}" ] || die "substituted smoke needs the device/environment check that closes the gap"
+    write --arg d "$2" --arg o "$3" --arg c "$4" \
+      '.smoke = { result: "substituted", detail: $d, owner: $o, check: $c, verified: false }'
+    echo "smoke -> substituted ($2) — open verification for $3: $4"; return
+  fi
   write --arg r "$1" --arg d "$2" '.smoke = { result: $r, detail: $d }'
   echo "smoke -> $1 ($2)"
+}
+
+# Exit 1 while a substituted smoke is unverified — a task cannot be DONE with an open gap.
+cmd_verify_open() {
+  need_state
+  jq -e '.smoke.result == "substituted" and (.smoke.verified | not)' "$STATE" >/dev/null || { echo "no open verification"; return 0; }
+  jq -r '"OPEN VERIFICATION — owner: \(.smoke.owner) — check: \(.smoke.check)"' "$STATE"
+  exit 1
 }
 
 # `column` is not installed everywhere; fall back to fixed-width printf.
@@ -334,6 +362,10 @@ cmd_panel() {
   jq -r '"wave \(.current_wave + 1) members: \((.waves[.current_wave] // []) | join(", "))",
          "integration: \(.integration.branch)",
          (if .smoke then "smoke: \(.smoke.result) — \(.smoke.detail)" else empty end),
+         (if .smoke.result == "substituted" then
+            (if .smoke.verified then "  verified by \(.smoke.owner): \(.smoke.evidence)"
+             else "  OPEN VERIFICATION — owner: \(.smoke.owner) — check: \(.smoke.check)" end)
+          else empty end),
          "objective: \(.objective // "-")",
          (.plans[] | select(.reason != null and (.status == "blocked" or .status == "skipped" or .status == "review"))
           | "  \(.id): \(.reason)")' "$STATE"
@@ -351,6 +383,10 @@ cmd_report() {
      then "unreported by harness: \(.budget.unreported | join(", "))" else empty end),
     (if (.budget.notes // "") != "" then "notes: \(.budget.notes)" else empty end),
     (if .smoke then "smoke: \(.smoke.result) — \(.smoke.detail)" else empty end),
+         (if .smoke.result == "substituted" then
+            (if .smoke.verified then "  verified by \(.smoke.owner): \(.smoke.evidence)"
+             else "  OPEN VERIFICATION — owner: \(.smoke.owner) — check: \(.smoke.check)" end)
+          else empty end),
     "", "(Unreported entries are listed, never estimated.)"
   ' "$STATE"
 }
@@ -371,7 +407,8 @@ case "${1:-}" in
   advance)          cmd_advance ;;
   budget)           shift; cmd_budget "$@" ;;
   smoke)            shift; cmd_smoke "$@" ;;
+  verify-open)      cmd_verify_open ;;
   panel)            cmd_panel ;;
   report)           cmd_report ;;
-  *) sed -n '2,27p' "$0" >&2; exit 1 ;;
+  *) sed -n '2,31p' "$0" >&2; exit 1 ;;
 esac

@@ -100,8 +100,18 @@ expect 1 "bad ledger kind rejected" -- "$FLOW" budget 156 10 opus review agent
 # --- smoke result recorded, substitutes visible -----------------------------
 expect 1 "smoke needs a detail"      -- "$FLOW" smoke substituted
 expect 1 "bad smoke result rejected" -- "$FLOW" smoke skipped "x"
-"$FLOW" smoke substituted "no Android SDK; ran ViewModel tests" >/dev/null
+expect 1 "substituted smoke needs an owner" -- "$FLOW" smoke substituted "no Android SDK; ran ViewModel tests"
+expect 1 "substituted smoke needs a device check" -- "$FLOW" smoke substituted "no Android SDK; ran ViewModel tests" "@marvel"
+expect 1 "verified needs a prior substituted smoke" -- "$FLOW" smoke verified "Pixel 8: ok"
+expect 0 "nothing open before a substitute" -- "$FLOW" verify-open
+"$FLOW" smoke substituted "no Android SDK; ran ViewModel tests" "@marvel" "Pixel 8, Android 14: send a message, see the streamed reply" >/dev/null
 "$FLOW" panel 2>/dev/null | grep -q "smoke: substituted" && ok || bad "panel shows substituted smoke"
+"$FLOW" panel 2>/dev/null | grep -q "OPEN VERIFICATION.*@marvel.*Pixel 8" && ok || bad "panel shows owner and device check"
+expect 1 "open verification blocks completion" -- "$FLOW" verify-open
+expect 1 "verified needs evidence" -- "$FLOW" smoke verified
+"$FLOW" smoke verified "Pixel 8: reply streamed in 1.2s" >/dev/null
+expect 0 "verification closed after device evidence" -- "$FLOW" verify-open
+"$FLOW" report 2>/dev/null | grep -q "verified by @marvel: Pixel 8: reply streamed" && ok || bad "report shows closing evidence"
 
 # --- panel works without `column` -------------------------------------------
 mkdir -p nocol; for b in jq awk sed paste mktemp mv dirname cat; do ln -sf "$(command -v $b)" nocol/; done
