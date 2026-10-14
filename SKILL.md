@@ -110,6 +110,8 @@ When the goal becomes a meaningful task, establish the Task Context before detai
 - write `task.md`, `context.md`, and initialize `investigation.md`, `decisions.md`, `handoff.md`
 - record the base git SHA
 - link the task to its plan
+- **commit `tasks/`** before `flow.sh integration-init` — worktrees only see committed files,
+  and `integration-init` refuses uncommitted task context
 
 ### Phase 2 · Plan
 Read `references/planning.md` and act as the advisor (or dispatch an `opus` subagent that
@@ -185,13 +187,20 @@ Before modifying code:
 If task context and Git disagree:
 STOP, identify the discrepancy, update the task context if safe, and report it.
 
-Before returning:
-- update handoff.md
-- record actual verification results
-- record actual commits
-- record remaining work
-- commit the task-context update with the task ID
+Before returning, write your own plan handoff, tasks/TASK-xxx/handoffs/<plan-id>.md:
+- actual verification results
+- actual commits
+- remaining work
+- discoveries and proposed decisions
+Commit it with the task ID. Never edit the shared task files (task.md, context.md,
+investigation.md, decisions.md, handoff.md) — siblings in your wave would overwrite each other.
 ```
+
+**Single writer for shared task files.** Plans of one wave run in parallel, so the shared task
+files have exactly one writer: you. After a wave's plans are integrated and before
+`flow.sh advance`, fold each `handoffs/<plan-id>.md` into `handoff.md` (status, next action)
+and `decisions.md` in the integration worktree and commit there. `flow.sh integrate` refuses
+a plan that edits a shared task file (exit 7) and sends it back to review.
 
 ### Phase 4 · Verify (code, not an agent)
 In the **integration worktree** (`.flow/integration`), where all plans meet:
@@ -332,7 +341,9 @@ tasks/
     ├── context.md
     ├── investigation.md
     ├── decisions.md
-    └── handoff.md
+    ├── handoff.md          # orchestrator only
+    └── handoffs/
+        └── <plan-id>.md    # one per executor, written only by it
 ```
 
 For tiny tasks, the minimal set may be `task.md`, `context.md`, and `handoff.md`.
@@ -345,7 +356,8 @@ against Git before continuing.
 
 ## Handoff rule (non-negotiable)
 
-Any agent that changes a task must update `handoff.md` before handing off to another agent.
+Any agent that changes a task must leave a handoff before handing off to another agent:
+executors write their own `handoffs/<plan-id>.md`; only the orchestrator writes `handoff.md`.
 The next agent cannot rely on conversation history; it must read the task files, inspect Git,
 and verify the repo state before acting.
 

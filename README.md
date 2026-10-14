@@ -140,7 +140,7 @@ orchestrator falls back to maintaining state itself and says so.
 Test the plumbing:
 
 ```bash
-~/.claude/skills/flow-dev-company/scripts/test-flow.sh   # 46 checks, throwaway git repo
+~/.claude/skills/flow-dev-company/scripts/test-flow.sh   # 52 checks, throwaway git repo
 ```
 
 ## Structure

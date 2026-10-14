@@ -32,12 +32,12 @@ Before modifying code, every executor must read the task context and reconcile i
 If task context and Git disagree:
 STOP, identify the discrepancy, update the task context if safe, and report it.
 
-Before returning:
-- update handoff.md
-- record actual verification results
-- record actual commits
-- record remaining work
-- commit the task-context update with the task ID
+Before returning, write tasks/TASK-xxx/handoffs/<plan-id>.md:
+- actual verification results
+- actual commits
+- remaining work
+- discoveries and proposed decisions
+Commit it with the task ID. Never edit the shared task files.
 ```
 
 `flow.sh` remains the run-state machine for orchestration. `tasks/TASK-xxx/*` remains the
@@ -81,6 +81,12 @@ is built on the original base, and "depends on 001" means nothing.
   merge `flow/<run>/main` into its branch, resolve, re-run the done criteria, report. Two
   plans conflicting in one wave usually means the plans overlapped in scope — note it for
   the next planning pass.
+- On exit 7 the executor edited a shared task file. `SendMessage` it: revert that file, move
+  the content into `tasks/TASK-xxx/handoffs/<id>.md`, re-run the done criteria, report.
+- **Wave close-out (orchestrator, single writer):** once every plan of the wave is integrated,
+  fold the wave's `handoffs/<id>.md` files into `handoff.md` (current status, exact next
+  action) and accepted proposals into `decisions.md`, in `.flow/integration`, as one commit —
+  then `flow.sh advance`. Executors never race on a shared file because none of them writes one.
 
 ---
 
@@ -155,8 +161,11 @@ uncommitted, the executor cannot read it. Never assume it can.
 > against an actual tool result from this session — report only what you have evidence for;
 > if a verification failed or was skipped, say so plainly.
 >
-> Before returning, update `handoff.md`, record actual verification results, actual commits,
-> remaining work, and the task-context update with the task ID.
+> Before returning, write `tasks/TASK-xxx/handoffs/<plan-id>.md` — actual verification results,
+> actual commits, remaining work, discoveries, proposed decisions — and commit it with the task
+> ID. It is in scope for every plan. Never edit `task.md`, `context.md`, `investigation.md`,
+> `decisions.md`, or `handoff.md`: other executors of this wave run in parallel, and only the
+> orchestrator writes those.
 
 **Fresh-worktree note**: worktrees share git history but not `node_modules` or build
 artifacts. The executor installs dependencies first, and tooling that resolves from `dist/`

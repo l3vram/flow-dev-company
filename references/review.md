@@ -46,7 +46,8 @@ In order — stop early only on a hard failure:
 
 **Scope compliance runs at every level**, HIGH risk or not: `git -C <worktree> diff --stat`
 against the plan's in-scope list. A file outside scope fails review, full stop, however
-plausible the change looks.
+plausible the change looks. The executor's own `tasks/TASK-xxx/handoffs/<id>.md` is always in
+scope; any other file under `tasks/` is not — shared task files belong to the orchestrator.
 
 **Size compliance also runs at every level.** Read the diff for code it did not need: a new
 dependency where the standard library or an existing helper does the job, an abstraction

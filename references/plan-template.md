@@ -93,6 +93,7 @@ executor's environment. Skip the section otherwise.)
 **In scope** (the only files you should modify):
 - `src/orders/api.ts`
 - `src/orders/api.test.ts` (create)
+- `tasks/TASK-<number>/handoffs/NNN.md` (create — your handoff; implicit in every plan)
 
 **Out of scope** (do NOT touch, even though they look related):
 - `src/orders/legacy-api.ts` — deprecated path, scheduled for deletion;

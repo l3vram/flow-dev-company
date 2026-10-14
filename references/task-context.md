@@ -53,7 +53,8 @@ tasks/TASK-<number>/
   ├── context.md
   ├── investigation.md
   ├── decisions.md
-  └── handoff.md
+  ├── handoff.md            # orchestrator only
+  └── handoffs/<plan-id>.md # one per executor, written only by it
 ```
 
 For complex tasks, `handoff.md` is a short iteration log with timestamps, state on entry, work completed, files changed, commits, verification, next action, and exit state.
@@ -211,7 +212,9 @@ Required when the task discovers facts not known at creation time.
 
 #### `decisions.md`
 
-ADR-lite format. If the decision changes, create a new `DEC-<n>-02` superseding `DEC-<n>-01`.
+ADR-lite format, orchestrator-written. Executors propose decisions in their plan handoff;
+the orchestrator assigns the `DEC-<n>-NN` number when folding them in, so parallel executors
+never claim the same number. If the decision changes, create a new `DEC-<n>-02` superseding `DEC-<n>-01`.
 
 #### `handoff.md`
 
@@ -446,11 +449,23 @@ This ensures that findings are captured without turning issues into a second sou
 
 ### Handoff contract
 
-Every agent that touches a task must update `handoff.md` before handing off. The next agent must read:
+Every agent that touches a task leaves a handoff before handing off, with exactly one writer
+per file:
+
+- An **executor** writes only `handoffs/<plan-id>.md` — its own file, so parallel executors
+  of one wave never collide. Proposed decisions and discoveries go there too.
+- The **orchestrator** is the only writer of `task.md`, `context.md`, `investigation.md`,
+  `decisions.md`, and `handoff.md`. At each wave close-out it folds the wave's plan handoffs
+  into them in the integration worktree and commits. `flow.sh integrate` refuses (exit 7) a
+  plan branch that edits one of those shared files.
+- Commit `tasks/` before `flow.sh integration-init`; worktrees only see committed files.
+
+The next agent must read:
 
 - `task.md`
 - `context.md`
 - `handoff.md`
+- `handoffs/` entries newer than the last close-out
 - `decisions.md`
 - `investigation.md` when relevant
 - the associated plan

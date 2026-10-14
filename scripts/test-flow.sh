@@ -144,5 +144,32 @@ cd "$TMP"; rm -rf empty; mkdir empty; cd empty; git init -q
 "$FLOW" init g "greenfield" >/dev/null
 expect 1 "integration-init refuses repo without commits" -- "$FLOW" integration-init
 
+# --- task context: parallel executors never share a task file ----------------
+cd "$TMP"; rm -rf tc; mkdir tc; cd tc
+git init -q -b main; echo base > base.txt; git add .; git commit -qm init
+"$FLOW" init run2 "task context" >/dev/null
+"$FLOW" add 001 dev sonnet >/dev/null; "$FLOW" add 002 dev sonnet >/dev/null; "$FLOW" add 003 dev sonnet >/dev/null
+"$FLOW" waves >/dev/null; "$FLOW" gate A approved >/dev/null
+mkdir -p tasks/TASK-1; echo "# Handoff" > tasks/TASK-1/handoff.md
+expect 1 "integration-init refuses uncommitted task context" -- "$FLOW" integration-init
+git add tasks; git commit -qm "task context"
+expect 0 "integration-init after task context committed" -- "$FLOW" integration-init
+INT=flow/run2/main
+mk() { # mk <id> <file> : executor branch from integration, writes <file>, commits
+  git branch -q "flow/run2/$1" "$INT"; git worktree add -q "../tc-$1" "flow/run2/$1"
+  mkdir -p "../tc-$1/$(dirname "$2")"; echo "plan $1" >> "../tc-$1/$2"; echo "$1" > "../tc-$1/f$1.txt"
+  git -C "../tc-$1" add .; git -C "../tc-$1" commit -qm "plan $1"
+  "$FLOW" set "$1" running >/dev/null; "$FLOW" set "$1" green >/dev/null
+}
+mk 001 tasks/TASK-1/handoffs/001.md
+mk 002 tasks/TASK-1/handoffs/002.md
+expect 0 "per-plan handoff integrates" -- "$FLOW" integrate 001
+expect 0 "sibling per-plan handoff integrates without conflict" -- "$FLOW" integrate 002
+mk 003 tasks/TASK-1/handoff.md
+expect 7 "executor edit of shared task file refused" -- "$FLOW" integrate 003
+eq "$(st 003 status)" "review" "shared-file plan back to review"
+git -C "$(jq -r .integration.worktree .flow/state.json)" ls-files tasks/TASK-1/handoffs | wc -l | tr -d ' ' \
+  | { read n; eq "$n" "2" "both plan handoffs present on integration branch"; }
+
 echo "flow.sh tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

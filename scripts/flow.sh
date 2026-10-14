@@ -14,6 +14,7 @@
 #   flow.sh set <id> <status> [reason]      pending|running|review|green|blocked|skipped
 #   flow.sh revise <id>                     count a REVISE round; 3rd round blocks the plan
 #   flow.sh integrate <id>                  merge the plan's branch into the integration branch
+#                                           (exit 6 conflict, 7 executor edited a shared task file)
 #   flow.sh skip-dependents <id>            mark every transitive dependent of <id> skipped
 #   flow.sh wave-done                       exit 0 if every plan in the current wave is settled
 #   flow.sh advance                         move to next wave (only if current is settled)
@@ -137,6 +138,9 @@ cmd_integration_init() {
   need_state
   git rev-parse --verify -q HEAD >/dev/null \
     || die "not a git repository with at least one commit — greenfield: git init && commit plans/ first"
+  # Worktrees only see committed files: executors would start without their task context.
+  [ -z "$(git status --porcelain -- tasks 2>/dev/null)" ] \
+    || die "tasks/ has uncommitted changes — commit the task context before integration-init"
   local base="${1:-$(git rev-parse --abbrev-ref HEAD)}" br wt
   br=$(jq -r '.integration.branch' "$STATE")
   wt="$(dirname "$STATE")/integration"
@@ -216,6 +220,16 @@ cmd_integrate() {
   [ -n "$wt" ] && [ -d "$wt" ] || die "no integration worktree — run 'flow.sh integration-init'"
   br=$(field "$id" branch)
   git rev-parse --verify -q "refs/heads/$br" >/dev/null || die "branch $br not found — executor must commit on it"
+  # Shared task files have one writer, the orchestrator; parallel executors writing them
+  # overwrite each other. Executors write only tasks/TASK-*/handoffs/<id>.md.
+  local shared
+  shared=$(git -C "$wt" diff --name-only "HEAD...$br" \
+    | grep -E '^tasks/[^/]+/(task|context|investigation|decisions|handoff)\.md$' | paste -sd, - || true)
+  if [ -n "$shared" ]; then
+    write --arg id "$id" --arg f "$shared" \
+      '.plans |= map(if .id==$id then .status = "review" | .reason = ("executor edited shared task file: " + $f) else . end)'
+    EXIT=7 die "plan $id edits shared task file(s) $shared — executors write only tasks/TASK-*/handoffs/$id.md; plan back to review"
+  fi
   if git -C "$wt" merge --no-ff --no-edit -m "flow: integrate plan $id" "$br" >/dev/null 2>&1; then
     write --arg id "$id" '.plans |= map(if .id==$id then .integrated = true else . end)'
     echo "integrate $id -> $(jq -r '.integration.branch' "$STATE")"
