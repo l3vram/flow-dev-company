@@ -126,6 +126,10 @@ Skip straight to "Write the plans" below.
   PRDs, `CONTEXT.md`, `DESIGN.md`, `PRODUCT.md`. They record decided tradeoffs the code cannot
   tell you. Strictly additive: read what exists, no-op when absent. A tradeoff recorded in an
   ADR is by-design, not a finding.
+- If a prebuilt code map exists (e.g. `graphify-out/GRAPH_REPORT.md` from
+  [graphify](https://github.com/Graphify-Labs/graphify)), read it before grepping — it is the
+  cheapest way into a large repo. Strictly additive: never install or build one yourself, and
+  confirm any fact you inline into a plan against the source, since maps go stale.
 - Check git signal where useful (`git log --oneline -30`, churn hotspots) — what is evolving
   vs. frozen.
 

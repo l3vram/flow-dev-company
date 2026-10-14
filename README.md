@@ -173,6 +173,11 @@ flow-dev-company/
   gates), [barkain/claude-code-workflow-orchestration](https://github.com/barkain/claude-code-workflow-orchestration)
   (wave scheduling, agent roster), and the Planner→Executor→Reviewer architecture common to
   AgentMesh / CrewAI / AutoGen.
+- Executor discipline borrows from [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail)
+  (write the least code; size-compliance review) and
+  [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills) (test-first fixes,
+  source-driven API use). Recon reads a [graphify](https://github.com/Graphify-Labs/graphify)
+  map when one exists.
 - The compression policy is informed by [juliusbrussee/caveman](https://github.com/juliusbrussee/caveman)
   and the independent benchmarks that measured it honestly — including
   [Kuba Guzik's 85-token micro-prompt](https://dev.to/jakguzik/i-benchmarked-the-viral-caveman-prompt-to-save-llm-tokens-then-my-6-line-version-beat-it-2o81),

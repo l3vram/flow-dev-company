@@ -48,6 +48,12 @@ In order — stop early only on a hard failure:
 against the plan's in-scope list. A file outside scope fails review, full stop, however
 plausible the change looks.
 
+**Size compliance also runs at every level.** Read the diff for code it did not need: a new
+dependency where the standard library or an existing helper does the job, an abstraction
+with one caller, options or config nobody asked for, a reimplementation of something the
+repo already has. Each one is a finding with a concrete cut ("delete X, call existing Y").
+Missing validation, error handling, or tests is never a valid cut.
+
 **Adversarial verification** applies to HIGH-severity findings only: try to refute the
 finding with N skeptics and keep it by majority. Running skeptics over every minor nit
 costs more than the nits are worth. Diverse lenses (correctness / security / perf /

@@ -140,6 +140,16 @@ uncommitted, the executor cannot read it. Never assume it can.
 > result before continuing. Touch only in-scope files. On any STOP condition, stop immediately
 > and report — do not improvise around obstacles.
 >
+> Write the least code that meets the done criteria: reuse what the repo already has, then
+> the standard library and native platform features, before adding code or a dependency. No
+> speculative abstractions, options, or layers the plan did not ask for. Never cut
+> validation, error handling, security, or accessibility to get there.
+>
+> For a bug fix or a behavior change, write the failing test first, see it fail for the
+> stated reason, then make it pass. Before calling an external API or library you are not
+> certain of, check the version actually installed (lockfile, manifest) and its docs or
+> source — never rely on memory of an API.
+>
 > Commit on that branch per the plan's git workflow; never push. Do not edit
 > `plans/README.md` — your reviewer maintains the index. Before reporting, audit every claim
 > against an actual tool result from this session — report only what you have evidence for;

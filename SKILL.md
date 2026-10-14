@@ -263,13 +263,13 @@ If `TaskCreate`/`TaskList` exist, mirror each plan as a task too.
    breaker stops at 3 attempts.
 4. Verify means the plans' done criteria plus the smoke run, as deterministic code on the
    integrated result — never an agent's opinion. A substituted smoke is reported as such.
-8. Ceremony scales with the work. Never create an artifact or spawn an agent whose cost
-   exceeds what it protects — the same rule that batches trivial plans applies to every phase.
 5. Execution goes to the cheap tier, judgment to the expensive one. Report the ledger when it helps.
 6. The execute↔verify loop converges under an attempt ceiling.
 7. The advisor **never edits code directly** — it writes plans and reviews diffs. The fleet
    executes in isolated worktrees. The integration branch is the only thing it merges into;
    never merge into the user's branch or push without Gate B.
+8. Ceremony scales with the work. Never create an artifact or spawn an agent whose cost
+   exceeds what it protects — the same rule that batches trivial plans applies to every phase.
 
 ---
 
