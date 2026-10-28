@@ -134,9 +134,9 @@ use the merge-base with the default branch instead.
 **Tag every finding `introduced` or `pre-existing`** and separate them in the table. Do not
 blame the branch for legacy debt — but do surface what it is building on top of.
 
-When `SPEC.md` sets `Security: scoped` or `full`, run that audit here per `security.md` §4.
-Its records join this table under the same split, and its outcome is recorded with
-`flow.sh security` for Gate B.
+When `SPEC.md` sets `Security: scoped`, run the security review of the run's diff here per
+`security.md` §4. Its records join this table under the same split (`security.md` §5), and
+its outcome is recorded with `flow.sh security` for Gate B.
 
 Vet before presenting. Subagents over-report, and three failure classes recur: by-design
 behavior reported as a bug, mis-attributed evidence (real finding, wrong file or line), and

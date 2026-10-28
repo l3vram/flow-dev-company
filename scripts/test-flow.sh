@@ -120,6 +120,7 @@ fresh s
 "$FLOW" report | grep -q "security: not recorded" && ok || bad "report shows a missing security result"
 expect 1 "security needs a detail"        -- "$FLOW" security scoped
 expect 1 "bad security level rejected"    -- "$FLOW" security partial "x"
+expect 1 "full audits are external"       -- "$FLOW" security full "x"
 expect 1 "missing findings file rejected" -- "$FLOW" security scoped "quick" nope.json
 echo '{"verdict":"confirmed"}' > notarray.json
 expect 1 "non-array findings rejected"    -- "$FLOW" security scoped "quick" notarray.json

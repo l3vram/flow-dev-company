@@ -21,8 +21,6 @@ The highest-trust category — real bugs found by reading, not speculation.
 
 ## 2. Security
 
-This is the light pass inside a general audit. A dedicated security audit uses the bundled Cloudflare methodology instead — `planning.md` routes it through `security.md`.
-
 Review only what is directly supported by code evidence. Keep findings framed as defensive maintenance: identify the code pattern, explain the production impact, and describe the remediation. Keep plans at the level of code changes, configuration changes, and tests; do not include runnable demonstration strings or step-by-step misuse details.
 
 **Handling rule:** never copy a secret value into a finding or plan — those files get committed. Reference the `file:line` and credential type only ("Stripe live key at `config.ts:12`"), and the fix sketch always includes rotation, not just removal (a committed secret is burned even after deletion).

@@ -1,48 +1,51 @@
-# Security — the bundled audit methodology
+# Security — the security layer of review
 
-Read this only when security work is triggered: a diff the risk router sends to the full
-gauntlet (Phase 3), a `Security:` level above `guidance` in `SPEC.md` (Phase 5), or an
-explicit request to audit or pen-test a codebase (Phase 2). The rest of a run ignores it.
+This is layer 3 of the gauntlet and the security part of the Phase 5 branch review. It
+reviews **only the code the fleet generates in a run**. Read it when the risk router sends a
+diff to the full gauntlet (Phase 3), or when `SPEC.md` sets `Security: scoped` (Phase 5). The
+rest of a run ignores it.
+
+Auditing an existing system end to end is out of scope — that is done externally, with its
+own tooling. If the user asks for one, say so; never point the vendored workflow at a whole
+repository from here.
 
 The methodology is Cloudflare's `security-audit` skill, vendored unmodified in
 `<SKILL_DIR>/references/security-audit/` (MIT; provenance in its `UPSTREAM.md`). Those files
-are authoritative on *how* to audit. This file decides only *when* flow uses them, at what
+are authoritative on *how* to review. This file decides only *when* flow uses them, at what
 cost, and how their output feeds plans and gates. Never edit the vendored files — adapt here.
 It is bundled, not registered: read its files, do not invoke it with the Skill tool.
 
 ---
 
-## 1. Three levels — pick the cheapest that protects the work
+## 1. Two levels — pick the cheapest that protects the work
 
-| Level | Upstream mode | When | Cost (estimate) |
+| Level | Upstream mode | Runs | Cost (estimate) |
 |---|---|---|---|
-| `guidance` | guidance | Default. Layer 3 of the gauntlet on HIGH-risk diffs | ~2–4k input tokens per reviewed diff, no extra agents |
-| `scoped` | full audit, scoped to the run's diff | `SPEC.md` says `Security: scoped` | `quick`: ≥6 agents fixed (4 recon, 1 critic, ≥1 verifier) + one hunter per coverage unit |
-| `full` | full audit of the repository | The user explicitly asks to audit or pen-test the code | dozens of agents on a mid-size repo |
+| `guidance` | guidance | Default. Phase 3, on every diff the router sends to the full gauntlet | ~2–4k input tokens per such diff, no extra agents |
+| `scoped` | full audit, scoped to the run's diff | Phase 5, when `SPEC.md` says `Security: scoped` | `quick`: ≥6 agents fixed (4 recon, 1 critic, ≥1 verifier) + one hunter per coverage unit |
 
-The SPEC line is `Security: guidance | scoped [quick|standard|deep] | full [quick|standard|deep]`.
-Profiles default to `quick` for `scoped` and `standard` for `full`. A `scoped` or `full` audit
-always runs under a strict agent budget (upstream `budget`, counted in agent invocations). A
-`scoped` audit's budget is approved with the plans at Gate A. A `full` audit runs in Phase 2,
-*before* Gate A, so confirm its profile and budget with the user before the first agent
-launches. Default for `scoped quick`: 15 — a starting point, not a measurement; tune it from
-`flow.sh report`. Upstream refuses a budget that cannot fund
-its reconnaissance and reserves; that refusal is information, not something to route around.
+`guidance` always runs on HIGH-risk diffs; `scoped` adds a whole-run pass on top of it. The
+SPEC line is `Security: guidance | scoped [quick|standard|deep]`; `scoped` defaults to `quick`.
+A `scoped` review runs under a strict agent budget (upstream `budget`, counted in agent
+invocations), approved with the plans at Gate A. Default for `scoped quick`: 15 — a starting
+point, not a measurement; tune it from `flow.sh report`. Upstream refuses a budget that cannot
+fund its reconnaissance and reserves; that refusal is information, not something to route
+around.
 
 For a run of one or two low-risk plans, recommend `guidance` even under the Production-grade
-preset: six agents of fixed overhead to audit a small diff the router already passed costs
-more than it protects. Say so; the user decides.
+preset: six agents of fixed overhead to review a small diff the router already passed cost
+more than they protect. Say so; the user decides.
 
-## 2. What this environment can and cannot prove — say it before any audit
+## 2. What this environment can and cannot prove — say it before a `scoped` review
 
 Upstream marks a record `confirmed` only with a **bounded local observed result**, produced
 inside an OS-enforced sandbox (no external network, empty allowlisted environment, read-only
 target, scratch-only writes, CPU/memory/process/file-size/time limits) and promoted into
 evidence by trusted parent-side code. Flow's worktrees are **not** that sandbox — they have
 network, the host environment, and write access — and flow ships no promotion code. So by
-default every flow audit is **source-only**:
+default every security review here is **source-only**:
 
-- Security agents never build, test, or run target code. They read.
+- Security agents never build, test, or run the code. They read.
 - Source-grounded leads land as `needs_validation`, the missing sandbox named as the blocker.
   Expect `confirmed: 0`. That is the evidence bar, not a clean bill of health — never present
   it as one.
@@ -55,7 +58,7 @@ default every flow audit is **source-only**:
   limits covers the sandbox half; promotion still needs that trusted parent-side code. Never
   improvise a partial sandbox and call it compliant.
 
-## 3. `guidance` — Layer 3 of the gauntlet (Phase 3)
+## 3. `guidance` — layer 3 of the gauntlet (Phase 3)
 
 When the router sends a diff to the full gauntlet, the security layer (opus — your own
 review, or a dispatched `security-reviewer`) reads from `security-audit/`:
@@ -93,20 +96,18 @@ the review NOTES, not a REVISE — a false REVISE costs a full executor round. S
 the anchors in `SKILL.md` §Separate priority from certainty; HIGH-severity findings still go
 through adversarial verification (`review.md` §2).
 
-## 4. `scoped` and `full` — upstream full audit mode (Phases 2 and 5)
+## 4. `scoped` — the run's diff, upstream full audit mode (Phase 5)
 
 Run upstream's six phases exactly as `security-audit/SKILL.md` and the phase files it links
 define them — read each file at its phase, not all at once. Flow fixes only these values:
 
-- **Target**: `full` → the repository root. `scoped` → the integration worktree
-  (`.flow/integration`, absolute path) as an upstream scoped run over the diff between
-  `integration.base` and `flow/<run>/main`
-  (`git -C .flow/integration diff --name-only <base>...HEAD`).
+- **Target**: the integration worktree (`.flow/integration`, absolute path) as an upstream
+  scoped run over the diff between `integration.base` and `flow/<run>/main`
+  (`git -C .flow/integration diff --name-only <base>...HEAD`). Everything outside that diff
+  is `out_of_scope` in the ledger — upstream records it, never as covered.
 - **Output directory**: upstream's default, `~/security-audit-skill/<repo-name>/run-<N>`,
   where `<repo-name>` is the main checkout's name — never the worktree's `integration`.
   Inside the repository only when the user picks it and `git check-ignore -q <dir>` passes.
-  Upstream reuses prior runs in that directory, so a second iteration revalidates instead of
-  re-hunting.
 - **Profile and budget**: from the SPEC line (§1), recorded in upstream `run-metadata.json`.
 - **Agents** (Claude Code mapping): parent = you, the orchestrator; Task tool = `Agent`;
   upstream `research` agent = `subagent_type: "Explore"` (no file-editing tools; the prompt
@@ -117,30 +118,37 @@ define them — read each file at its phase, not all at once. Flow fixes only th
 - **Prompts**: build hunter and verifier prompts in upstream's exact order. It is already
   cache-friendly: the preamble and `architecture.md` are identical across a wave.
 - **Ledger**: every security agent is a spawn line —
-  `flow.sh budget sec-<agent-id> <tokens|null> <tier> plan|review`.
+  `flow.sh budget sec-<agent-id> <tokens|null> <tier> review`.
 - **Validators**: run `validate-coverage-ledger.cjs` and `validate-findings.cjs` from
   `<SKILL_DIR>/references/security-audit/` exactly when upstream says. They need Node.js;
-  without it the audit cannot reach a terminal state — say so and fall back to `guidance`.
+  without it the review cannot reach a terminal state — say so and fall back to `guidance`.
 - **Terminal state**: upstream's — every report written and both validators passing, or
   `run_status: "incomplete"` with its reason. Then record it for Gate B:
-  `flow.sh security scoped|full "<profile>, <agents spent>/<budget>, source-only|sandboxed" <output-dir>/findings.json`.
-  When no audit ran, record that too: `flow.sh security guidance "<N> HIGH-risk diffs reviewed"`
-  or `flow.sh security skipped "<why>"`.
+  `flow.sh security scoped "<profile>, <agents spent>/<budget>, source-only|sandboxed" <output-dir>/findings.json`.
 
-## 5. From `findings.json` to plans
+Record the security outcome even when no `scoped` review ran:
+`flow.sh security guidance "<N> HIGH-risk diffs reviewed"`, or
+`flow.sh security skipped "<why>"`.
 
-The planner reads `findings.json`, never the prose reports, and writes one plan per
-fingerprint with `plan-template.md` — excerpts from its own reads, as always. The plan's
-Status block carries `Finding: <fingerprint> (<findings.json path>)` so later runs dedupe.
+## 5. From `findings.json` to fix plans
 
-| Record | Becomes |
+Tag every record `introduced` (in code this run wrote) or `pre-existing`, as the branch review
+does. Pre-existing records are not this run's work: list them at Gate B for the external audit
+or the backlog, and plan them only if the user adds them.
+
+For introduced records the planner reads `findings.json`, never the prose reports, and writes
+one plan per fingerprint with `plan-template.md` — excerpts from its own reads, as always, and
+the run's Task ID. The plan's Status block carries `Finding: <fingerprint> (<findings.json path>)`.
+Fix plans requeue to execution like a Phase 4 failure.
+
+| Introduced record | Becomes |
 |---|---|
 | `confirmed` critical / high | fix plan, P1, `Risk: HIGH` (its diff gets the full gauntlet) |
 | `confirmed` medium | fix plan, P2 |
 | `confirmed` low / informational | P3 fix plan, or "not worth doing" with one line |
 | `needs_validation`, blocker resolvable by a local test | validate-then-fix plan (below) |
-| `needs_validation`, blocker is a deployment fact | no plan; listed at Gate B with its `validation_plan.deployment` check for the owner |
-| `rejected` | "Findings considered and rejected" in `plans/README.md`, by fingerprint |
+| `needs_validation`, blocker is a deployment fact | no plan; listed at Gate B and in `handoff.md` with its `validation_plan.deployment` check for the owner |
+| `rejected` | nothing to do; upstream keeps it in `findings.json` so the claim is not raised again |
 
 **Validate-then-fix plan.** Step 1 writes the regression test from `validation_plan.local`
 and runs it against the unfixed code. STOP condition: the test passes on unfixed code — the
@@ -151,10 +159,10 @@ Plans state the invariant and the regression case ("a path with a parent-directo
 is rejected with 400"). They never copy upstream `execution.payloads` verbatim: plans are
 committed, and an executor does not need a working exploit to write a fix.
 
-When a run fixes security findings, propose at Gate A a Phase 5 `scoped quick` re-audit
-against the same output directory, with its budget: upstream revalidates the changed source,
-which is the evidence the fix holds. The user may decline; then Gate B says the fixes were
-verified by their regression tests only.
+A fix loop does not re-run the `scoped` review by default: every fix plan is `Risk: HIGH`,
+so its diff gets the `guidance` layer, and its regression test is the evidence. Offer a
+`scoped quick` re-run against the same output directory at Gate B, with its budget — upstream
+then revalidates the changed source instead of re-hunting.
 
 ## 6. Gate B
 
@@ -162,9 +170,11 @@ verified by their regression tests only.
 never silent. Present, in the user's language:
 
 - the level that ran, its profile, agents spent against budget, source-only or sandboxed;
-- confirmed findings by severity, each tagged `introduced` or `pre-existing`. An introduced
-  critical or high is fixed before merge or explicitly accepted by the user;
-- every `needs_validation` lead with its exact blocker, and — when the run was source-only —
-  the plain statement that `confirmed: 0` reflects the missing sandbox, not proven safety;
+- introduced findings by severity and what happened to each. An introduced critical or high
+  is fixed before merge or explicitly accepted by the user;
+- every open `needs_validation` lead with its exact blocker, and — when the review was
+  source-only — the plain statement that `confirmed: 0` reflects the missing sandbox, not
+  proven safety;
+- pre-existing findings, handed to the external audit or the backlog;
 - what was out of scope or deferred. Upstream reports that one run found roughly half of what
-  repeated runs found; never imply a single pass exhausted the target.
+  repeated runs found; never imply a single pass exhausted even the run's own diff.

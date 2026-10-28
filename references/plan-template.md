@@ -44,7 +44,7 @@ For meaningful work, each plan should also identify its task identity and task p
 - **Task path**: `tasks/TASK-<number>/`
 - **Planned at**: commit `<short SHA>`, <YYYY-MM-DD>
 - **Issue**: <GitHub issue URL — only when published via `--issues`; omit otherwise>
-- **Finding**: <fingerprint> (<findings.json path> — only for plans from a security audit; omit otherwise)
+- **Finding**: <fingerprint> (<findings.json path> — only for fix plans from a security review; omit otherwise)
 
 ## Why this matters
 

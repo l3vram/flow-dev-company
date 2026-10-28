@@ -23,8 +23,8 @@
 #                                           runs the real device/environment check, and the check
 #   flow.sh smoke verified <evidence>       close a substituted smoke with real-device evidence
 #   flow.sh verify-open                     exit 1 while a substituted smoke is unverified
-#   flow.sh security <guidance|scoped|full|skipped> <detail> [findings.json]
-#                                           record the security level for Gate B; counts come from findings.json
+#   flow.sh security <guidance|scoped|skipped> <detail> [findings.json]
+#                                           record the security review for Gate B; counts come from findings.json
 #   flow.sh budget <id> <tokens|null> <tier> <phase> [spawn|inline]
 #                                           append to the ledger; only `spawn` counts as an agent
 #   flow.sh panel                           render the fleet table
@@ -41,7 +41,7 @@ STATUSES="pending running review green blocked skipped"
 PHASES="enrich plan execute verify review handoff"
 GATE_STATUSES="pending approved rejected"
 TIERS="opus sonnet haiku"
-SECURITY_LEVELS="guidance scoped full skipped"
+SECURITY_LEVELS="guidance scoped skipped"
 
 command -v jq >/dev/null 2>&1 || {
   echo "flow.sh: jq not found. Fall back to model-maintained state and tell the user." >&2

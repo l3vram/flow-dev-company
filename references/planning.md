@@ -144,11 +144,6 @@ baseline" becomes finding #1 and precedes every risky plan.
 
 Audit across the categories in [audit-playbook.md](audit-playbook.md) — read it now.
 
-Its Security category is the light pass inside a general audit. A dedicated security audit —
-the `security` focus, or a request to audit or pen-test the code — runs the bundled
-methodology instead ([security.md](security.md) §4), and plans come from its `findings.json`
-(§5), not from this phase's security findings.
-
 For repos of real size, fan out with read-only subagents (Explore), one per category or
 cluster. **Subagents inherit none of your context**, so each prompt must include:
 
@@ -236,9 +231,7 @@ precisely, or the fleet parallelizes wrong.
 
 - Bare → full workflow above.
 - `quick` / `deep` → audit effort level; composes with everything.
-- Focus argument (`perf`, `tests`) → recon, then that category only, then plan.
-- `security` → recon, then the bundled security audit in `full` mode (`security.md` §4), then
-  plans from its `findings.json` (`security.md` §5).
+- Focus argument (`security`, `perf`, `tests`) → recon, then that category only, then plan.
 - `next` / `features` / `roadmap` → recon, then the direction category in depth: 4–6 grounded
   suggestions with evidence, tradeoffs, coarse effort. Selected ones become spike plans.
 - `run <plan-file>...` → execute mode (see `SKILL.md` Phase 0): no audit, no new plans, no
