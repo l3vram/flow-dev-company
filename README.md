@@ -18,7 +18,7 @@ Self-contained: **nothing else to install.**
 
 ## How it works
 
-```
+```text
 0 Start/Resume → 1 Enrich → 2 Plan → 🚦GATE A → 3 Execute (waves) → 4 Verify → 5 Review → 🚦GATE B → 6 Handoff
                  (questions  (advisor   human    (parallel fleet,    (tests +   (branch   human   (docs)
                   → SPEC.md)  brain)             integrated per     smoke run) review)
@@ -43,7 +43,9 @@ Self-contained: **nothing else to install.**
 - **Verify** — on the integrated result: every plan's done criteria (build/test/lint) **plus a
   smoke run** that boots the product and drives its main flow. When the product cannot
   start in the environment (no mobile SDK, no device), it falls back to the highest runnable
-  layer and reports the smoke as *substituted* — never as a pass. Deterministic, blocking.
+  layer and reports the smoke as *substituted* — never as a pass. A substitute needs an owner
+  and the exact device/environment check that closes it; it lands in the task handoff and the
+  task cannot be marked done until the owner records the real result. Deterministic, blocking.
 - **Risk-routed review** — a router decides the review budget per diff: high-risk changes
   (auth, payments, crypto, migrations, new deps, LLM tool calling, large diffs) get the full
   four-layer gauntlet on the expensive tier; everything else gets spec-compliance +
@@ -56,6 +58,38 @@ Self-contained: **nothing else to install.**
   blocked/skipped plan listed and a token ledger for the run.
 
 Details in [`SKILL.md`](SKILL.md) and the `references/` files it loads per phase.
+
+## Git-native task context
+
+`flow-dev-company` treats Git as part of the durable development memory. A meaningful task has a
+stable identity and a small set of versioned context files. Agents use those files together with
+Git history and diffs instead of relying on conversation history.
+
+```text
+tasks/
+└── TASK-142/
+    ├── task.md
+    ├── context.md
+    ├── investigation.md
+    ├── decisions.md
+    └── handoff.md
+```
+
+And the overall flow is:
+
+```text
+Issue → Task → Plan → Branch → Commits → PR → Merge
+```
+
+The distinction is important:
+
+- Issue = collaboration/index
+- Task = durable work identity
+- Plan = implementation procedure
+- Git = implementation evidence
+- Basic Memory = reusable project knowledge
+
+This keeps GitHub issues as a useful index surface without making them the task source of truth.
 
 ## Token discipline
 
@@ -136,7 +170,7 @@ audits also need Node.js, for Cloudflare's zero-dependency validators.
 Test the plumbing:
 
 ```bash
-~/.claude/skills/flow-dev-company/scripts/test-flow.sh   # 86 checks, throwaway git repo
+~/.claude/skills/flow-dev-company/scripts/test-flow.sh   # 101 checks, throwaway git repo
 ```
 
 It also checks that the vendored security files still have the sections `security.md` points
@@ -146,11 +180,13 @@ at. Cloudflare's own validator tests run with
 
 ## Structure
 
-```
+```text
 flow-dev-company/
   SKILL.md                     # the orchestrator — thin index, one reference per phase
+  README.md                    # overview and Git-native task context documentation
   references/
     planning.md                # advisor brain: greenfield + recon/audit → plans
+    task-context.md            # normative Task Context protocol for tasks, handoff, and review
     review.md                  # risk router, four-layer gauntlet, verdicts, reconcile
     execution.md               # waves, agent roster, dispatch, return contract, state
     token-budget.md            # where tokens go, language policy, tiering, cache discipline
@@ -178,6 +214,11 @@ flow-dev-company/
   gates), [barkain/claude-code-workflow-orchestration](https://github.com/barkain/claude-code-workflow-orchestration)
   (wave scheduling, agent roster), and the Planner→Executor→Reviewer architecture common to
   AgentMesh / CrewAI / AutoGen.
+- Executor discipline borrows from [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail)
+  (write the least code; size-compliance review) and
+  [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills) (test-first fixes,
+  source-driven API use). Recon reads a [graphify](https://github.com/Graphify-Labs/graphify)
+  map when one exists.
 - The compression policy is informed by [juliusbrussee/caveman](https://github.com/juliusbrussee/caveman)
   and the independent benchmarks that measured it honestly — including
   [Kuba Guzik's 85-token micro-prompt](https://dev.to/jakguzik/i-benchmarked-the-viral-caveman-prompt-to-save-llm-tokens-then-my-6-line-version-beat-it-2o81),
@@ -186,3 +227,4 @@ flow-dev-company/
 ## License
 
 MIT — see [`LICENSE`](LICENSE). Includes third-party MIT portions (see Credits).
+

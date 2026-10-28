@@ -14,10 +14,15 @@
 #   flow.sh set <id> <status> [reason]      pending|running|review|green|blocked|skipped
 #   flow.sh revise <id>                     count a REVISE round; 3rd round blocks the plan
 #   flow.sh integrate <id>                  merge the plan's branch into the integration branch
+#                                           (exit 6 conflict, 7 executor edited a shared task file)
 #   flow.sh skip-dependents <id>            mark every transitive dependent of <id> skipped
 #   flow.sh wave-done                       exit 0 if every plan in the current wave is settled
 #   flow.sh advance                         move to next wave (only if current is settled)
-#   flow.sh smoke <pass|fail|substituted> <detail>     record the Phase 4 smoke result
+#   flow.sh smoke <pass|fail> <detail>      record the Phase 4 smoke result
+#   flow.sh smoke substituted <detail> <owner> <check>   product could not start here: name who
+#                                           runs the real device/environment check, and the check
+#   flow.sh smoke verified <evidence>       close a substituted smoke with real-device evidence
+#   flow.sh verify-open                     exit 1 while a substituted smoke is unverified
 #   flow.sh security <guidance|scoped|full|skipped> <detail> [findings.json]
 #                                           record the security level for Gate B; counts come from findings.json
 #   flow.sh budget <id> <tokens|null> <tier> <phase> [spawn|inline]
@@ -141,6 +146,9 @@ cmd_integration_init() {
   need_state
   git rev-parse --verify -q HEAD >/dev/null \
     || die "not a git repository with at least one commit — greenfield: git init && commit plans/ first"
+  # Worktrees only see committed files: executors would start without their task context.
+  [ -z "$(git status --porcelain -- tasks 2>/dev/null)" ] \
+    || die "tasks/ has uncommitted changes — commit the task context before integration-init"
   local base="${1:-$(git rev-parse --abbrev-ref HEAD)}" br wt
   br=$(jq -r '.integration.branch' "$STATE")
   wt="$(dirname "$STATE")/integration"
@@ -220,6 +228,16 @@ cmd_integrate() {
   [ -n "$wt" ] && [ -d "$wt" ] || die "no integration worktree — run 'flow.sh integration-init'"
   br=$(field "$id" branch)
   git rev-parse --verify -q "refs/heads/$br" >/dev/null || die "branch $br not found — executor must commit on it"
+  # Shared task files have one writer, the orchestrator; parallel executors writing them
+  # overwrite each other. Executors write only tasks/TASK-*/handoffs/<id>.md.
+  local shared
+  shared=$(git -C "$wt" diff --name-only "HEAD...$br" \
+    | grep -E '^tasks/[^/]+/(task|context|investigation|decisions|handoff)\.md$' | paste -sd, - || true)
+  if [ -n "$shared" ]; then
+    write --arg id "$id" --arg f "$shared" \
+      '.plans |= map(if .id==$id then .status = "review" | .reason = ("executor edited shared task file: " + $f) else . end)'
+    EXIT=7 die "plan $id edits shared task file(s) $shared — executors write only tasks/TASK-*/handoffs/$id.md; plan back to review"
+  fi
   if git -C "$wt" merge --no-ff --no-edit -m "flow: integrate plan $id" "$br" >/dev/null 2>&1; then
     write --arg id "$id" '.plans |= map(if .id==$id then .integrated = true else . end)'
     echo "integrate $id -> $(jq -r '.integration.branch' "$STATE")"
@@ -293,10 +311,26 @@ cmd_budget() {
 
 # Phase 4's smoke result. `substituted` = the product could not be started here (no SDK,
 # device, or credentials) and a lower layer was exercised instead — Gate B must show it.
+# A substitute opens a verification gap, so it needs an owner and the exact device/environment
+# check that closes it; `verified` closes it with evidence.
 cmd_smoke() {
   need_state
-  one_of "${1:-}" pass fail substituted || die "smoke result must be pass, fail or substituted"
+  one_of "${1:-}" pass fail substituted verified || die "smoke result must be pass, fail, substituted or verified"
+  if [ "$1" = verified ]; then
+    [ "$(jq -r '.smoke.result // empty' "$STATE")" = substituted ] \
+      || die "nothing to verify — 'verified' closes a substituted smoke"
+    [ -n "${2:-}" ] || die "verified needs evidence: device/environment and the observed result"
+    write --arg e "$2" '.smoke.verified = true | .smoke.evidence = $e'
+    echo "smoke verified ($2)"; return
+  fi
   [ -n "${2:-}" ] || die "smoke needs a detail: the command run, or for 'substituted' why and what ran instead"
+  if [ "$1" = substituted ]; then
+    [ -n "${3:-}" ] || die "substituted smoke needs an owner — who runs the real check"
+    [ -n "${4:-}" ] || die "substituted smoke needs the device/environment check that closes the gap"
+    write --arg d "$2" --arg o "$3" --arg c "$4" \
+      '.smoke = { result: "substituted", detail: $d, owner: $o, check: $c, verified: false }'
+    echo "smoke -> substituted ($2) — open verification for $3: $4"; return
+  fi
   write --arg r "$1" --arg d "$2" '.smoke = { result: $r, detail: $d }'
   echo "smoke -> $1 ($2)"
 }
@@ -342,6 +376,14 @@ def sec_warning:
   ((.security.counts.confirmed // {}) | (.critical // 0) + (.high // 0)) as $n
   | if $n > 0 then "  ! \($n) confirmed critical/high — fix before merge or accept explicitly at Gate B" else empty end;'
 
+# Exit 1 while a substituted smoke is unverified — a task cannot be DONE with an open gap.
+cmd_verify_open() {
+  need_state
+  jq -e '.smoke.result == "substituted" and (.smoke.verified | not)' "$STATE" >/dev/null || { echo "no open verification"; return 0; }
+  jq -r '"OPEN VERIFICATION — owner: \(.smoke.owner) — check: \(.smoke.check)"' "$STATE"
+  exit 1
+}
+
 # `column` is not installed everywhere; fall back to fixed-width printf.
 table() {
   if command -v column >/dev/null 2>&1; then column -t -s "$(printf '\t')"
@@ -365,6 +407,10 @@ cmd_panel() {
   jq -r "$SEC_JQ"'"wave \(.current_wave + 1) members: \((.waves[.current_wave] // []) | join(", "))",
          "integration: \(.integration.branch)",
          (if .smoke then "smoke: \(.smoke.result) — \(.smoke.detail)" else empty end),
+         (if .smoke.result == "substituted" then
+            (if .smoke.verified then "  verified by \(.smoke.owner): \(.smoke.evidence)"
+             else "  OPEN VERIFICATION — owner: \(.smoke.owner) — check: \(.smoke.check)" end)
+          else empty end),
          (if .security then sec_line, sec_warning else empty end),
          "objective: \(.objective // "-")",
          (.plans[] | select(.reason != null and (.status == "blocked" or .status == "skipped" or .status == "review"))
@@ -383,6 +429,10 @@ cmd_report() {
      then "unreported by harness: \(.budget.unreported | join(", "))" else empty end),
     (if (.budget.notes // "") != "" then "notes: \(.budget.notes)" else empty end),
     (if .smoke then "smoke: \(.smoke.result) — \(.smoke.detail)" else empty end),
+         (if .smoke.result == "substituted" then
+            (if .smoke.verified then "  verified by \(.smoke.owner): \(.smoke.evidence)"
+             else "  OPEN VERIFICATION — owner: \(.smoke.owner) — check: \(.smoke.check)" end)
+          else empty end),
     sec_line, sec_warning,
     "", "(Unreported entries are listed, never estimated.)"
   ' "$STATE"
@@ -405,7 +455,8 @@ case "${1:-}" in
   budget)           shift; cmd_budget "$@" ;;
   smoke)            shift; cmd_smoke "$@" ;;
   security)         shift; cmd_security "$@" ;;
+  verify-open)      cmd_verify_open ;;
   panel)            cmd_panel ;;
   report)           cmd_report ;;
-  *) sed -n '2,28p' "$0" >&2; exit 1 ;;
+  *) sed -n '2,33p' "$0" >&2; exit 1 ;;
 esac

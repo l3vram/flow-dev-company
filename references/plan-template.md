@@ -10,6 +10,11 @@ Three properties make a plan executable by a weaker model:
 
 File naming: `plans/NNN-short-slug.md`, numbered in recommended execution order.
 
+For meaningful work, each plan should also identify its task identity and task path:
+
+- `TASK-<number>`
+- `tasks/TASK-<number>/`
+
 ---
 
 ## Template
@@ -35,6 +40,8 @@ File naming: `plans/NNN-short-slug.md`, numbered in recommended execution order.
 - **Risk**: LOW | MED | HIGH
 - **Depends on**: plans/NNN-*.md (or "none")
 - **Category**: bug | security | perf | tests | tech-debt | migration | dx | docs | direction
+- **Task ID**: `TASK-<number>`
+- **Task path**: `tasks/TASK-<number>/`
 - **Planned at**: commit `<short SHA>`, <YYYY-MM-DD>
 - **Issue**: <GitHub issue URL — only when published via `--issues`; omit otherwise>
 - **Finding**: <fingerprint> (<findings.json path> — only for plans from a security audit; omit otherwise)
@@ -87,6 +94,7 @@ executor's environment. Skip the section otherwise.)
 **In scope** (the only files you should modify):
 - `src/orders/api.ts`
 - `src/orders/api.test.ts` (create)
+- `tasks/TASK-<number>/handoffs/NNN.md` (create — your handoff; implicit in every plan)
 
 **Out of scope** (do NOT touch, even though they look related):
 - `src/orders/legacy-api.ts` — deprecated path, scheduled for deletion;
@@ -202,3 +210,5 @@ The "Depends on" column is parsed into `flow.sh add` calls — plan ids only, co
 - Would a reviewer reading only "Why this matters" + "Done criteria" understand what they're approving?
 - No secret values anywhere in the file — locations and credential types only.
 - "Planned at" SHA is filled in and the in-scope paths in the drift check match the Scope section.
+- The task ID and task path are recorded and follow the repository task convention.
+

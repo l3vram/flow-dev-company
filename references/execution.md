@@ -9,6 +9,45 @@ Planner→Executor→Reviewer architecture common to AgentMesh/CrewAI/AutoGen.
 
 ---
 
+## Task context before execution
+
+Before modifying code, every executor must read the task context and reconcile it against Git:
+
+```text
+1. Read the complete task context:
+   - tasks/TASK-xxx/task.md
+   - tasks/TASK-xxx/context.md
+   - tasks/TASK-xxx/handoff.md
+   - tasks/TASK-xxx/decisions.md
+   - tasks/TASK-xxx/investigation.md when relevant
+
+2. Inspect:
+   - git status
+   - task-related git log
+   - current branch
+   - relevant diff
+
+3. Verify the handoff matches the repository.
+
+If task context and Git disagree:
+STOP, identify the discrepancy, update the task context if safe, and report it.
+
+Before returning, write tasks/TASK-xxx/handoffs/<plan-id>.md:
+- actual verification results
+- actual commits
+- remaining work
+- discoveries and proposed decisions
+Commit it with the task ID. Never edit the shared task files.
+```
+
+`flow.sh` remains the run-state machine for orchestration. `tasks/TASK-xxx/*` remains the
+durable engineering context for the task. Do not merge them into a second state machine.
+
+The executor must not rely on conversation history. The repository and the task files are the
+source of truth.
+
+---
+
 ## 1. Waves — derive parallelism, don't guess it
 
 Read the dependency graph in `plans/README.md` and layer it topologically (Kahn):
@@ -42,6 +81,12 @@ is built on the original base, and "depends on 001" means nothing.
   merge `flow/<run>/main` into its branch, resolve, re-run the done criteria, report. Two
   plans conflicting in one wave usually means the plans overlapped in scope — note it for
   the next planning pass.
+- On exit 7 the executor edited a shared task file. `SendMessage` it: revert that file, move
+  the content into `tasks/TASK-xxx/handoffs/<id>.md`, re-run the done criteria, report.
+- **Wave close-out (orchestrator, single writer):** once every plan of the wave is integrated,
+  fold the wave's `handoffs/<id>.md` files into `handoff.md` (current status, exact next
+  action) and accepted proposals into `decisions.md`, in `.flow/integration`, as one commit —
+  then `flow.sh advance`. Executors never race on a shared file because none of them writes one.
 
 ---
 
@@ -90,15 +135,37 @@ uncommitted, the executor cannot read it. Never assume it can.
 
 **Executor preamble** (part of the stable prefix):
 
-> You are the executor for the plan below. First, in your worktree, run
-> `git switch -c flow/<run>/<id> flow/<run>/main` — you build on the integrated work, not
-> the original base. Follow the plan step by step. Run every verification
-> command and confirm the expected result before continuing. Touch only in-scope files. On
-> any STOP condition, stop immediately and report — do not improvise around obstacles.
+> You are the executor for the plan below. Before modifying code, read the task context in
+> `tasks/TASK-xxx/task.md`, `context.md`, `handoff.md`, `decisions.md`, and `investigation.md`
+> when relevant. Then inspect `git status`, the task-related `git log`, the current branch,
+> and the relevant diff. Verify the handoff matches the repository. If the task context and
+> Git disagree, STOP, identify the discrepancy, update the task context if safe, and report it.
+>
+> Build on the integrated work, not the original base: in your worktree, run
+> `git switch -c flow/<run>/<id> flow/<run>/main` before touching code. Then follow the plan step by step, and run every verification command and confirm the expected
+> result before continuing. Touch only in-scope files. On any STOP condition, stop immediately
+> and report — do not improvise around obstacles.
+>
+> Write the least code that meets the done criteria: reuse what the repo already has, then
+> the standard library and native platform features, before adding code or a dependency. No
+> speculative abstractions, options, or layers the plan did not ask for. Never cut
+> validation, error handling, security, or accessibility to get there.
+>
+> For a bug fix or a behavior change, write the failing test first, see it fail for the
+> stated reason, then make it pass. Before calling an external API or library you are not
+> certain of, check the version actually installed (lockfile, manifest) and its docs or
+> source — never rely on memory of an API.
+>
 > Commit on that branch per the plan's git workflow; never push. Do not edit
 > `plans/README.md` — your reviewer maintains the index. Before reporting, audit every claim
 > against an actual tool result from this session — report only what you have evidence for;
 > if a verification failed or was skipped, say so plainly.
+>
+> Before returning, write `tasks/TASK-xxx/handoffs/<plan-id>.md` — actual verification results,
+> actual commits, remaining work, discoveries, proposed decisions — and commit it with the task
+> ID. It is in scope for every plan. Never edit `task.md`, `context.md`, `investigation.md`,
+> `decisions.md`, or `handoff.md`: other executors of this wave run in parallel, and only the
+> orchestrator writes those.
 
 **Fresh-worktree note**: worktrees share git history but not `node_modules` or build
 artifacts. The executor installs dependencies first, and tooling that resolves from `dist/`
@@ -152,7 +219,9 @@ context loss, drives the panel, and enforces the retry ceiling.
       "branch": "flow/2026-07-31-chatbot/002", "integrated": false }
   ],
   "budget": { "by_phase": {}, "by_tier": {}, "by_plan": {}, "spawns": 0, "inline": 0, "unreported": [] },
-  "smoke": { "result": "substituted", "detail": "no Android SDK — ViewModel tests" },
+  "smoke": { "result": "substituted", "detail": "no Android SDK — ViewModel tests",
+             "owner": "@maintainer", "check": "Pixel 8, Android 14: send a message, see the reply",
+             "verified": false },
   "security": { "level": "scoped", "detail": "quick, 11/15 agents, source-only",
                 "findings": "/home/me/security-audit-skill/chatbot/run-1/findings.json",
                 "counts": { "confirmed": {}, "needs_validation": 3, "rejected": 1 } }
@@ -189,3 +258,18 @@ If you generate a real orchestration script: no `Date.now()`, `Math.random()`, o
 - **Team mode** (only if `TeamCreate`/`SendMessage` exist): peer-to-peer agents on a shared
   task list — worth the extra coordination cost only when two plans must negotiate live.
   Default to subagent mode; team mode multiplies context, and context is the budget.
+
+---
+
+## 8. Handoff and Git-driven continuation
+
+A handoff is a proof artifact, not a transcript. The next agent must verify:
+
+- the task identity and file paths are correct
+- the listed files match the current Git diff
+- the commit list matches the branch history
+- the verification result has evidence
+- the remaining work matches the actual repo state
+
+If it does not, the handoff is stale and must be corrected before continuing.
+
