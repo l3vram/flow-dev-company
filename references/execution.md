@@ -74,8 +74,8 @@ is built on the original base, and "depends on 001" means nothing.
 
 - `flow.sh integration-init` creates branch `flow/<run>/main` in its own worktree
   (`.flow/integration`). The user's checkout is never touched.
-- Each executor works on branch `flow/<run>/<id>`, created **from the integration branch**
-  at dispatch time — so it contains every dependency already integrated.
+- `flow.sh worktree <id>` creates worktree `.flow/wt-<id>` and branch `flow/<run>/<id>` **from
+  the integration branch** at dispatch time — so it contains every dependency already integrated.
 - After APPROVE: `flow.sh set <id> green && flow.sh integrate <id>` (a `--no-ff` merge).
 - On a merge conflict (exit 6) the plan returns to `review`. `SendMessage` its executor:
   merge `flow/<run>/main` into its branch, resolve, re-run the done criteria, report. Two
@@ -83,6 +83,10 @@ is built on the original base, and "depends on 001" means nothing.
   the next planning pass.
 - On exit 7 the executor edited a shared task file. `SendMessage` it: revert that file, move
   the content into `tasks/TASK-xxx/handoffs/<id>.md`, re-run the done criteria, report.
+- On exit 8 the branch changed a file outside its declared scope. `SendMessage` the executor to
+  revert the out-of-scope files (or move the change into a follow-up plan), re-run the done
+  criteria, and report. If review concludes the plan's In-scope list itself was wrong, fix the
+  plan and re-run `flow.sh scope <id> …` before integrating again.
 - **Wave close-out (orchestrator, single writer):** once every plan of the wave is integrated,
   fold the wave's `handoffs/<id>.md` files into `handoff.md` (current status, exact next
   action) and accepted proposals into `decisions.md`, in `.flow/integration`, as one commit —
@@ -113,21 +117,31 @@ Pick the role from the plan's category. When two fit, the narrower one wins.
 
 ## 3. Dispatch
 
-One `Agent` call per plan (or per batch — see `token-budget.md`), `isolation: "worktree"`,
+One `Agent` call per plan (or per batch — see `token-budget.md`), **no `isolation`**,
 `run_in_background: true`, at the role's tier. Preconditions before any dispatch:
 
 - The working repo is a git repository with at least one commit, and the integration
-  worktree exists. If not, stop and say so — worktree isolation needs both.
+  worktree exists. If not, stop and say so — per-task worktrees need both.
 - Gate A is approved and the plan appears in `flow.sh ready` (dependencies green and integrated).
 - `flow.sh set <id> running` succeeded — it refuses a fourth dispatch.
+- `flow.sh scope <id> <globs>` is set from the plan's In-scope list (repo-relative paths only;
+  drop annotations like `(create)`). The plan's own `tasks/TASK-*/handoffs/<id>.md` is always in
+  scope automatically.
+- `flow.sh worktree <id>` succeeded; include its path in the prompt suffix.
 - The plan's drift check passes. Never hand a stale plan to an executor.
+
+**`.worktreeinclude`**: worktrees contain only committed files. List gitignored local config the
+build needs (for example `local.properties` or a debug keystore) one repo-relative path per line
+in `.worktreeinclude` at the repo root; `#` lines are comments. `flow.sh worktree` copies those
+files into each task worktree, only from inside the repo. Do not list dependency directories such
+as `node_modules`; executors install those.
 
 **Prompt structure** — stable prefix first, byte-identical per role:
 
 ```
 [PREFIX]  role row (verbatim from §2) + hard rules + caveman micro-directive
           + return contract
-[SUFFIX]  full plan text inlined + worktree note + wave context
+[SUFFIX]  full plan text inlined + worktree absolute path + wave context
 ```
 
 Inline the **full plan text**. The worktree contains only committed files; if `plans/` is
@@ -141,8 +155,9 @@ uncommitted, the executor cannot read it. Never assume it can.
 > and the relevant diff. Verify the handoff matches the repository. If the task context and
 > Git disagree, STOP, identify the discrepancy, update the task context if safe, and report it.
 >
-> Build on the integrated work, not the original base: in your worktree, run
-> `git switch -c flow/<run>/<id> flow/<run>/main` before touching code. Then follow the plan step by step, and run every verification command and confirm the expected
+> Build on the integrated work: your working directory is the worktree `<abs path>`, already on
+> branch `flow/<run>/<id>` cut from the integration branch. Run every command there. Never
+> create, switch, or rebase branches. Then follow the plan step by step, and run every verification command and confirm the expected
 > result before continuing. Touch only in-scope files. On any STOP condition, stop immediately
 > and report — do not improvise around obstacles.
 >
@@ -168,9 +183,9 @@ uncommitted, the executor cannot read it. Never assume it can.
 > orchestrator writes those.
 
 **Fresh-worktree note**: worktrees share git history but not `node_modules` or build
-artifacts. The executor installs dependencies first, and tooling that resolves from `dist/`
-may need one build even if the plan's command table (recon'd in the main tree) omitted it.
-This is expected, not a deviation.
+artifacts. Gitignored local config listed in `.worktreeinclude` is copied in. The executor
+installs dependencies first, and tooling that resolves from `dist/` may need one build even if
+the plan's command table (recon'd in the main tree) omitted it. This is expected, not a deviation.
 
 ---
 
@@ -216,7 +231,8 @@ context loss, drives the panel, and enforces the retry ceiling.
       "branch": "flow/2026-07-31-chatbot/001", "integrated": true },
     { "id": "002", "role": "backend-dev", "tier": "sonnet", "status": "running",
       "attempts": 1, "revisions": 1, "deps": ["001"],
-      "branch": "flow/2026-07-31-chatbot/002", "integrated": false }
+      "branch": "flow/2026-07-31-chatbot/002", "worktree": "wt-002",
+      "scope": ["src/api/**"], "integrated": false }
   ],
   "budget": { "by_phase": {}, "by_tier": {}, "by_plan": {}, "spawns": 0, "inline": 0, "unreported": [] },
   "smoke": { "result": "substituted", "detail": "no Android SDK — ViewModel tests",
@@ -237,6 +253,7 @@ context loss, drives the panel, and enforces the retry ceiling.
   burn budget on blind retries.
 - Update on every transition via `scripts/flow.sh`, not by rewriting JSON in prose. Every
   input is validated; a non-zero exit means the transition did not happen.
+- `state.json` is a projection of `events.jsonl`; never edit it by hand.
 
 ---
 
@@ -253,7 +270,7 @@ If you generate a real orchestration script: no `Date.now()`, `Math.random()`, o
 
 ## 7. Subagent mode vs team mode
 
-- **Default (subagent)**: each plan runs in an isolated `Agent` with a worktree and returns
+- **Default (subagent)**: each plan runs in an `Agent` working in its own `flow.sh worktree` and returns
   under the contract above.
 - **Team mode** (only if `TeamCreate`/`SendMessage` exist): peer-to-peer agents on a shared
   task list — worth the extra coordination cost only when two plans must negotiate live.

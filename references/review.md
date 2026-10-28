@@ -51,7 +51,9 @@ In order — stop early only on a hard failure:
 **Scope compliance runs at every level**, HIGH risk or not: `git -C <worktree> diff --stat`
 against the plan's in-scope list. A file outside scope fails review, full stop, however
 plausible the change looks. The executor's own `tasks/TASK-xxx/handoffs/<id>.md` is always in
-scope; any other file under `tasks/` is not — shared task files belong to the orchestrator.
+scope; any other file under `tasks/` is not — shared task files belong to the orchestrator. When
+the plan's scope was set, `flow.sh integrate` enforces the same rule in code (exit 8) — review
+still checks first; integrate is the backstop.
 
 **Size compliance also runs at every level.** Read the diff for code it did not need: a new
 dependency where the standard library or an existing helper does the job, an abstraction
@@ -114,7 +116,7 @@ in scope. *Undocumented* deviations are review failures.
 
 | Verdict | When | Action |
 |---|---|---|
-| **APPROVE** | Criteria pass, scope clean, quality holds | `flow.sh set <id> green && flow.sh integrate <id>`; update the index. A conflict (exit 6) returns the plan to review — the executor merges integration and resolves the issue. **Merging into the user's branch is their call at Gate B — never merge, push, or commit there.** |
+| **APPROVE** | Criteria pass, scope clean, quality holds | `flow.sh set <id> green && flow.sh integrate <id>`; update the index. A refusal returns the plan to review: exit 6 conflict (executor merges the integration branch and resolves), 7 shared task file, 8 out of scope (see `execution.md`). **Merging into the user's branch is their call at Gate B — never merge, push, or commit there.** |
 | **REVISE** | Fixable gaps | `flow.sh revise <id>`, then `SendMessage` to the same executor with specific, actionable feedback ("criterion 3 fails: X; `api.ts:90` swallows the error — use the Result pattern per the plan"). **Max 2 revision rounds** — the script blocks the plan on the third. |
 | **BLOCK** | STOP condition hit, scope violated unrecoverably, or revisions exhausted | `flow.sh set <id> blocked "<reason>"`. Refine or rewrite the plan with what was learned and requeue (`set <id> pending`), or — after the human gate — `flow.sh skip-dependents <id>`. Tell the user what happened and what changed. |
 
@@ -154,10 +156,12 @@ Process what happened since the last session. Read `plans/README.md` and each pl
   around it (new number if the approach changed fundamentally, in-place refresh otherwise)
   or mark REJECTED with one line of rationale.
 - **IN PROGRESS (stale)** — an executor probably died mid-run (state says `running` but no
-  agent is alive). Check its branch for commits; `set <id> pending` to requeue, which costs
-  one attempt when re-dispatched.
+  agent is alive). Check `.flow/wt-<id>` and its branch for commits; `set <id> pending` to
+  requeue, which costs one attempt when re-dispatched.
 - **green but not integrated** — run `flow.sh integrate <id>` before anything else; the next
   wave depends on it.
+- **returned by integrate with exit 7 or 8** — handle the shared-file or scope violation per
+  `execution.md`, then `flow.sh set <id> green` and integrate again.
 - **TODO** — check the plan is executable *here*: absolute paths, tools, or commands
   from another machine (`/Users/...`, a local SDK path, a Mac-only command) get rewritten
   for this environment. Then run the drift check. If drifted, re-verify the finding still exists (it may

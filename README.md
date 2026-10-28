@@ -164,14 +164,16 @@ Restart your Claude Code session (skills load at startup), then:
 /flow-dev-company I want to build a chatbot
 ```
 
-Or invoke it empty and it will ask what to build. Requires `git` and `jq`; without `jq` the
-orchestrator falls back to maintaining state itself and says so. A `scoped` security review
-also needs Node.js, for Cloudflare's zero-dependency validators.
+Or invoke it empty and it will ask what to build. Requires `git` and Node.js ≥ 22. `flow.sh`
+runs the flow-harness engine; without a local `flow-harness`, the first call fetches and builds it
+via `npx`, which needs network access. `jq` is needed only by `scripts/test-flow.sh` and the
+deprecated `scripts/flow-legacy.sh`. A `scoped` security review uses Node.js for Cloudflare's
+zero-dependency validators.
 
 Test the plumbing:
 
 ```bash
-~/.claude/skills/flow-dev-company/scripts/test-flow.sh   # 102 checks, throwaway git repo
+FLOW_HARNESS_BIN=/path/to/flow-harness/bin/flow-harness.mjs ~/.agents/skills/flow-dev-company/scripts/test-flow.sh   # 102 checks
 ```
 
 It also checks that the vendored security files still have the sections `security.md` points
@@ -196,7 +198,8 @@ flow-dev-company/
     audit-playbook.md          # audit categories (existing repos)
     plan-template.md           # self-contained plan format
   scripts/
-    flow.sh                    # deterministic plumbing: waves, state, gates, integration, panel, ledger
+    flow.sh                    # shim over flow-harness (waves, state, gates, integration, worktrees, scope, panel, ledger)
+    flow-legacy.sh             # deprecated jq implementation, removed next release
     test-flow.sh               # regression suite for flow.sh
 ```
 
