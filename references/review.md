@@ -21,6 +21,8 @@ source of waste in a fleet run. Classify first:
 - outbound network calls or new external egress
 - data migrations, deletions, or destructive operations
 - new third-party dependencies
+- LLM tool calling or other model-controlled actions, and prompts that mix untrusted content
+  with privileged context or data
 - more than ~150 changed lines
 - the plan itself was tagged `Risk: HIGH`
 
@@ -40,7 +42,9 @@ In order — stop early only on a hard failure:
 1. **Spec compliance** — does it do exactly what the plan asked? Re-run every done
    criterion in the worktree. Do not trust the executor's report; verify.
 2. **Correctness** — bugs, edge cases, error paths.
-3. **Security** — inputs, secrets, authz, injection surfaces.
+3. **Security** — inputs, secrets, authz, injection surfaces. On the full gauntlet this layer
+   uses the bundled methodology in guidance mode: `security.md` §3 names the sections to read
+   per trigger and the gate a security REVISE must pass.
 4. **Tests & quality** — do the new tests assert anything meaningful? Executors game
    criteria; a test that asserts nothing still passes the suite. Read what it asserts.
 
@@ -129,6 +133,10 @@ use the merge-base with the default branch instead.
 
 **Tag every finding `introduced` or `pre-existing`** and separate them in the table. Do not
 blame the branch for legacy debt — but do surface what it is building on top of.
+
+When `SPEC.md` sets `Security: scoped`, run the security review of the run's diff here per
+`security.md` §4. Its records join this table under the same split (`security.md` §5), and
+its outcome is recorded with `flow.sh security` for Gate B.
 
 Vet before presenting. Subagents over-report, and three failure classes recur: by-design
 behavior reported as a bug, mis-attributed evidence (real finding, wrong file or line), and

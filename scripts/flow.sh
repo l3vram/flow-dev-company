@@ -23,6 +23,8 @@
 #                                           runs the real device/environment check, and the check
 #   flow.sh smoke verified <evidence>       close a substituted smoke with real-device evidence
 #   flow.sh verify-open                     exit 1 while a substituted smoke is unverified
+#   flow.sh security <guidance|scoped|skipped> <detail> [findings.json]
+#                                           record the security review for Gate B; counts come from findings.json
 #   flow.sh budget <id> <tokens|null> <tier> <phase> [spawn|inline]
 #                                           append to the ledger; only `spawn` counts as an agent
 #   flow.sh panel                           render the fleet table
@@ -39,6 +41,7 @@ STATUSES="pending running review green blocked skipped"
 PHASES="enrich plan execute verify review handoff"
 GATE_STATUSES="pending approved rejected"
 TIERS="opus sonnet haiku"
+SECURITY_LEVELS="guidance scoped skipped"
 
 command -v jq >/dev/null 2>&1 || {
   echo "flow.sh: jq not found. Fall back to model-maintained state and tell the user." >&2
@@ -65,6 +68,7 @@ cmd_init() {
     integration: { branch: ("flow/" + $run + "/main"), base: null, worktree: null },
     waves: [], current_wave: 0, plans: [],
     smoke: null,
+    security: null,
     budget: { by_phase: {}, by_tier: {}, by_plan: {}, spawns: 0, inline: 0, unreported: [], notes: "" }
   }' > "$STATE"
   echo "init $STATE"
@@ -331,6 +335,47 @@ cmd_smoke() {
   echo "smoke -> $1 ($2)"
 }
 
+# Security level for Gate B (references/security.md). Counts are derived from the vendored
+# audit's findings.json, never typed by the model; without a file only the level is recorded.
+cmd_security() {
+  need_state
+  one_of "${1:-}" $SECURITY_LEVELS || die "security level must be one of: $SECURITY_LEVELS"
+  [ -n "${2:-}" ] || die "security needs a detail: profile, agents spent/budget, source-only or sandboxed — or why it was skipped"
+  local f="${3:-}" counts="null"
+  if [ -n "$f" ]; then
+    [ -f "$f" ] || die "findings file not found: $f"
+    counts=$(jq -c '
+      if type != "array" then error("not an array") else . end
+      | { confirmed: (map(select(.verdict == "confirmed")) | group_by(.severity.overall_severity)
+                      | map({ key: .[0].severity.overall_severity, value: length }) | from_entries),
+          needs_validation: (map(select(.verdict == "needs_validation")) | length),
+          rejected: (map(select(.verdict == "rejected")) | length) }' "$f" 2>/dev/null) \
+      || die "cannot read $f as findings.json (a top-level array of records) — run validate-findings.cjs on it"
+  fi
+  write --arg l "$1" --arg d "$2" --arg f "$f" --argjson c "$counts" \
+    '.security = { level: $l, detail: $d, findings: (if $f == "" then null else $f end), counts: $c }'
+  echo "security -> $1 ($2)"
+}
+
+# One rendering of the security line, shared by panel and report.
+SEC_JQ='def sec_line:
+  .security as $s
+  | if $s == null then "security: not recorded"
+    else "security: \($s.level) — \($s.detail)"
+      + (if $s.counts == null then ""
+         else ($s.counts.confirmed) as $c
+           | " | confirmed \([$c[]] | add // 0)"
+             + (if ($c | length) > 0
+                then " (" + ([("critical","high","medium","low","informational") as $k
+                              | select($c[$k]) | "\($k) \($c[$k])"] | join(", ")) + ")"
+                else "" end)
+             + ", needs_validation \($s.counts.needs_validation), rejected \($s.counts.rejected)"
+         end)
+    end;
+def sec_warning:
+  ((.security.counts.confirmed // {}) | (.critical // 0) + (.high // 0)) as $n
+  | if $n > 0 then "  ! \($n) confirmed critical/high — fix before merge or accept explicitly at Gate B" else empty end;'
+
 # Exit 1 while a substituted smoke is unverified — a task cannot be DONE with an open gap.
 cmd_verify_open() {
   need_state
@@ -359,13 +404,14 @@ cmd_panel() {
                  (if (.deps|length)==0 then "-" else (.deps|join(",")) end)] | @tsv)
   ' "$STATE" | table
   echo
-  jq -r '"wave \(.current_wave + 1) members: \((.waves[.current_wave] // []) | join(", "))",
+  jq -r "$SEC_JQ"'"wave \(.current_wave + 1) members: \((.waves[.current_wave] // []) | join(", "))",
          "integration: \(.integration.branch)",
          (if .smoke then "smoke: \(.smoke.result) — \(.smoke.detail)" else empty end),
          (if .smoke.result == "substituted" then
             (if .smoke.verified then "  verified by \(.smoke.owner): \(.smoke.evidence)"
              else "  OPEN VERIFICATION — owner: \(.smoke.owner) — check: \(.smoke.check)" end)
           else empty end),
+         (if .security then sec_line, sec_warning else empty end),
          "objective: \(.objective // "-")",
          (.plans[] | select(.reason != null and (.status == "blocked" or .status == "skipped" or .status == "review"))
           | "  \(.id): \(.reason)")' "$STATE"
@@ -373,7 +419,7 @@ cmd_panel() {
 
 cmd_report() {
   need_state
-  jq -r '
+  jq -r "$SEC_JQ"'
     "TOKEN LEDGER — run \(.run)", "",
     "by phase:", (.budget.by_phase | to_entries[] | "  \(.key): \(.value)"),
     "by tier:",  (.budget.by_tier  | to_entries[] | "  \(.key): \(.value)"),
@@ -387,6 +433,7 @@ cmd_report() {
             (if .smoke.verified then "  verified by \(.smoke.owner): \(.smoke.evidence)"
              else "  OPEN VERIFICATION — owner: \(.smoke.owner) — check: \(.smoke.check)" end)
           else empty end),
+    sec_line, sec_warning,
     "", "(Unreported entries are listed, never estimated.)"
   ' "$STATE"
 }
@@ -407,8 +454,9 @@ case "${1:-}" in
   advance)          cmd_advance ;;
   budget)           shift; cmd_budget "$@" ;;
   smoke)            shift; cmd_smoke "$@" ;;
+  security)         shift; cmd_security "$@" ;;
   verify-open)      cmd_verify_open ;;
   panel)            cmd_panel ;;
   report)           cmd_report ;;
-  *) sed -n '2,31p' "$0" >&2; exit 1 ;;
+  *) sed -n '2,33p' "$0" >&2; exit 1 ;;
 esac

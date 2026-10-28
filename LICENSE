@@ -3,8 +3,12 @@ MIT License
 Copyright (c) 2026 l3vram
 
 Portions of this project (the bundled advisor playbook under references/:
-advisor.md, audit-playbook.md, plan-template.md, closing-the-loop.md) are
-derived from the "improve" skill, Copyright (c) shadcn, also licensed MIT.
+planning.md, review.md, audit-playbook.md, plan-template.md) are derived from
+the "improve" skill, Copyright (c) shadcn, also licensed MIT.
+
+The files under references/security-audit/ are the "security-audit" skill,
+Copyright (c) 2025-2026 Cloudflare, Inc., licensed MIT; its license is
+reproduced in references/security-audit/LICENSE.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
