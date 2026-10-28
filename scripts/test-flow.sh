@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # test-flow.sh — regression tests for flow.sh, plus the contract between references/security.md
 # and the vendored security-audit files. Runs in a throwaway git repo; needs jq + git.
-# Usage: scripts/test-flow.sh   (exit 0 = all pass)
+# Usage: scripts/test-flow.sh   (exit 0 = all pass; FLOW=<abs path> overrides the binary under test)
 set -uo pipefail
 
-FLOW="$(cd "$(dirname "$0")" && pwd)/flow.sh"
+FLOW="${FLOW:-$(cd "$(dirname "$0")" && pwd)/flow.sh}"
 SEC="$(cd "$(dirname "$0")/../references/security-audit" && pwd)"
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 cd "$TMP"
@@ -160,7 +160,7 @@ for b in "Access control" "Business logic" "Cryptography and secrets" "Resource 
 done
 
 # --- panel works without `column` -------------------------------------------
-mkdir -p nocol; for b in jq awk sed paste mktemp mv dirname cat; do ln -sf "$(command -v $b)" nocol/; done
+mkdir -p nocol; for b in jq awk sed paste mktemp mv dirname cat node; do ln -sf "$(command -v $b)" nocol/; done
 out=$(PATH="$TMP/nocol" /bin/bash "$FLOW" panel 2>&1); rc=$?
 [ $rc -eq 0 ] && echo "$out" | grep -q "PLAN" && ok || bad "panel without column (exit $rc): $out"
 
