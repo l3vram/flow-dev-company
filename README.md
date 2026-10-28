@@ -45,8 +45,13 @@ Self-contained: **nothing else to install.**
   start in the environment (no mobile SDK, no device), it falls back to the highest runnable
   layer and reports the smoke as *substituted* — never as a pass. Deterministic, blocking.
 - **Risk-routed review** — a router decides the review budget per diff: high-risk changes
-  (auth, payments, crypto, migrations, new deps, large diffs) get the full four-layer gauntlet
-  on the expensive tier; everything else gets spec-compliance + correctness on a cheaper one.
+  (auth, payments, crypto, migrations, new deps, LLM tool calling, large diffs) get the full
+  four-layer gauntlet on the expensive tier; everything else gets spec-compliance +
+  correctness on a cheaper one.
+- **Security, bundled from Cloudflare** — the security layer of that review uses Cloudflare's
+  [security-audit](https://github.com/cloudflare/security-audit-skill) methodology, and the
+  same methodology can audit the run's diff or a whole repo, with its verified findings turned
+  into plans the fleet fixes. Levels and costs below.
 - **🚦 Gate B** — final human review before you merge the integration branch, with every
   blocked/skipped plan listed and a token ledger for the run.
 
@@ -90,6 +95,28 @@ and nowhere else.
 Judgment goes to the expensive tier; executing already-written plans goes to the cheap one.
 Never the reverse.
 
+## Security audit
+
+Cloudflare's `security-audit` skill ships inside this one (`references/security-audit/`,
+unmodified, MIT). `references/security.md` decides when it runs and what it costs:
+
+| Level | What runs | Cost |
+|---|---|---|
+| `guidance` (default) | The full-gauntlet review of a high-risk diff reads only the matching sections (auth, LLM/tool calling, supply chain, tenancy…) and applies Cloudflare's evidence bar: no named principal, input, control and affected resource, no REVISE | a few thousand input tokens per such diff, no extra agents |
+| `scoped` | Cloudflare's full audit, scoped to the run's diff, at Phase 5 | ≥6 agents of fixed overhead plus one hunter per coverage unit, under a strict budget you approve at Gate A |
+| `full` | Cloudflare's full audit of an existing repo (`/flow-dev-company audit this repo for vulnerabilities`) — findings become fix plans | dozens of agents on a mid-size repo; profile and budget confirmed with you before the first agent |
+
+Pick it in the spec (`Security: guidance | scoped | full`); Fast MVP implies `guidance`,
+Production-grade implies `scoped quick`. Gate B always shows what ran (`flow.sh security`).
+
+**What it cannot prove here.** Cloudflare marks a finding `confirmed` only after reproducing it
+inside an OS-enforced sandbox (no network, empty environment, resource limits) with trusted
+evidence-promotion code. Claude Code worktrees are not that sandbox, so by default audits are
+source-only: leads come back as `needs_validation` with an exact trace, and the fleet settles
+each one with a regression test (validate-then-fix plans). `confirmed: 0` from a source-only
+run means "not proven", never "secure". Cloudflare also reports that one run found roughly half
+of what repeated runs found — treat an audit as a pass, not a guarantee.
+
 ## Install
 
 ```bash
@@ -103,13 +130,19 @@ Restart your Claude Code session (skills load at startup), then:
 ```
 
 Or invoke it empty and it will ask what to build. Requires `git` and `jq`; without `jq` the
-orchestrator falls back to maintaining state itself and says so.
+orchestrator falls back to maintaining state itself and says so. `scoped` and `full` security
+audits also need Node.js, for Cloudflare's zero-dependency validators.
 
 Test the plumbing:
 
 ```bash
-~/.claude/skills/flow-dev-company/scripts/test-flow.sh   # 46 checks, throwaway git repo
+~/.claude/skills/flow-dev-company/scripts/test-flow.sh   # 86 checks, throwaway git repo
 ```
+
+It also checks that the vendored security files still have the sections `security.md` points
+at. Cloudflare's own validator tests run with
+`node references/security-audit/validate-findings.test.cjs` and
+`node references/security-audit/validate-coverage-ledger.test.cjs`.
 
 ## Structure
 
@@ -121,6 +154,8 @@ flow-dev-company/
     review.md                  # risk router, four-layer gauntlet, verdicts, reconcile
     execution.md               # waves, agent roster, dispatch, return contract, state
     token-budget.md            # where tokens go, language policy, tiering, cache discipline
+    security.md                # when the bundled security audit runs, its cost, findings → plans
+    security-audit/            # Cloudflare's security-audit skill, vendored unmodified (MIT)
     audit-playbook.md          # audit categories (existing repos)
     plan-template.md           # self-contained plan format
   scripts/
@@ -134,6 +169,10 @@ flow-dev-company/
   `plan-template.md`) derives from the **`improve`** skill by
   **[shadcn](https://github.com/shadcn)**, MIT licensed. Adapted with a **greenfield mode**
   for projects starting from zero, and split by phase for progressive disclosure.
+- The security methodology (`references/security-audit/`) is Cloudflare's
+  **[security-audit](https://github.com/cloudflare/security-audit-skill)** skill, Copyright
+  (c) 2025-2026 Cloudflare, Inc., MIT licensed, vendored unmodified at the commit recorded in
+  its `UPSTREAM.md`. flow-dev-company's adaptation lives in `references/security.md`.
 - Orchestration patterns distill ideas from
   [aaddrick/claude-pipeline](https://github.com/aaddrick/claude-pipeline) (JSON state, layered
   gates), [barkain/claude-code-workflow-orchestration](https://github.com/barkain/claude-code-workflow-orchestration)

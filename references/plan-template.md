@@ -37,6 +37,7 @@ File naming: `plans/NNN-short-slug.md`, numbered in recommended execution order.
 - **Category**: bug | security | perf | tests | tech-debt | migration | dx | docs | direction
 - **Planned at**: commit `<short SHA>`, <YYYY-MM-DD>
 - **Issue**: <GitHub issue URL — only when published via `--issues`; omit otherwise>
+- **Finding**: <fingerprint> (<findings.json path> — only for plans from a security audit; omit otherwise)
 
 ## Why this matters
 

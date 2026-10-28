@@ -1,6 +1,6 @@
 ---
 name: flow-dev-company
-description: End-to-end development orchestrator. Takes a goal ("I want to build a chatbot"), enriches it with senior-level questions, then plans and executes with a fleet of parallel agents — an expensive brain plans and reviews, cheap hands execute in isolated worktrees, each task at the right tier, with the fleet's progress visible. Self-contained; depends on no external skill. Use when the user wants to build something from scratch or ship a large feature in an orchestrated way.
+description: End-to-end development orchestrator. Takes a goal ("I want to build a chatbot"), enriches it with senior-level questions, then plans and executes with a fleet of parallel agents — an expensive brain plans and reviews, cheap hands execute in isolated worktrees, each task at the right tier, with the fleet's progress visible. Bundles Cloudflare's security-audit methodology for risk-routed security review and opt-in audits whose verified findings the fleet then fixes. Self-contained; depends on no external skill. Use when the user wants to build something from scratch or ship a large feature in an orchestrated way.
 ---
 
 # flow-dev-company
@@ -12,13 +12,14 @@ You do not write the product; the fleet does.
 ## Progressive disclosure — load one reference per phase
 
 Everything is bundled here. `<SKILL_DIR>` is this skill's directory. Read only what the
-current phase needs; do not preload all five.
+current phase needs; do not preload them all.
 
 | Phase | Read |
 |---|---|
 | Planning (2) | `references/planning.md` → then `audit-playbook.md` + `plan-template.md` as it directs |
 | Execution (3) | `references/execution.md` |
 | Review (3, 5) | `references/review.md` |
+| Security (only when triggered: full-gauntlet review, `Security:` above `guidance`, an audit request) | `references/security.md` → only the vendored `references/security-audit/` sections it names |
 | Always in effect | `references/token-budget.md` — read once at start, it is short |
 
 Deterministic plumbing lives in `scripts/flow.sh` (waves, state, gates, integration, panel,
@@ -51,6 +52,7 @@ Pick the entry point — each one skips what already exists instead of re-creati
 |---|---|
 | `.flow/state.json` exists | **Resume**: `flow.sh panel`, read `plans/SPEC.md` if present, run `reconcile` (`references/review.md`), continue from the recorded phase. Never start a second run over a live one without asking. |
 | Existing plan file(s) — "run plan 156", `plans/156-*.md` | **Execute mode**: skip Phase 1 and `SPEC.md`. The plan is the spec; its done criteria are the definition of done. Run `reconcile` on those plans (drift check against current HEAD, environment-specific paths or commands, stale excerpts) and fix what it finds, then Gate A, then Phase 3. |
+| A request to audit or pen-test an existing codebase | **Audit mode**: skip Phase 1 and `SPEC.md`; Phase 2 with the `security` focus (`references/security.md` §4–5). Its verified findings become plans, the plans' done criteria are the definition of done, then Gate A and the fleet fixes them. |
 | A goal | Phase 1. |
 | Nothing | Reply and **wait**: "What are we building?" Assume nothing, spawn nothing yet. |
 
@@ -64,16 +66,21 @@ Given something vague ("I want a chatbot"):
    context/memory, streaming, moderation, rate limiting, model choice, fallback, evals, cost
    per conversation, persistence, i18n, tool calling.
 2. **Propose what good work includes** even unasked: auth, tests, observability, error
-   handling, CI, security. As options, not a lecture.
+   handling, CI, security. As options, not a lecture. Security includes a **level** for the
+   spec — `guidance` (risk-routed review only, no extra agents), `scoped` (an audit of the
+   run's diff at Phase 5, ≥6 agents of fixed overhead), or `full`; costs in
+   `references/security.md` §1.
 3. **Ask what is missing** with `AskUserQuestion` (max 4 per round, concrete options, one
    recommended): MVP vs complete scope and non-goals; stack and where it runs;
    users/scale/latency/budget; integrations and sensitive data; definition of done.
-4. **Offer presets**: "Fast MVP" / "Production-grade" / "Custom".
+4. **Offer presets**: "Fast MVP" / "Production-grade" / "Custom". Fast MVP implies
+   `Security: guidance`; Production-grade implies `Security: scoped quick`.
 
 Close with a written **refined spec** and confirm it with the user. Then write it to
 `plans/SPEC.md` (English) — it is the source of truth for every later phase and must survive
 context compaction. Include the **smoke scenario**: the one user-visible flow that proves the
-product works end to end (e.g. "send a message, receive a streamed reply").
+product works end to end (e.g. "send a message, receive a streamed reply") — and the
+`Security:` line.
 
 ### Phase 2 · Plan
 Read `references/planning.md` and act as the advisor (or dispatch an `opus` subagent that
@@ -147,11 +154,15 @@ Deterministic and blocking. A failure becomes a fix plan and requeues to executi
 ### Phase 5 · Final branch review
 Run the branch review in `references/review.md` on the integration branch against its base:
 audit only the run's changes, separating `introduced` from `pre-existing`. Surviving findings
-get fixed.
+get fixed. When `SPEC.md` sets `Security: scoped` or `full` — or Gate A approved a re-audit
+after an audit-mode run — that audit runs here
+(`references/security.md` §4). Record the outcome with `flow.sh security` whatever ran —
+`guidance` when only the router's reviews did.
 
 ### GATE B · Human final review
 Show the result against the done criteria (`SPEC.md`, or the plans' in execute mode), the
-smoke result from the panel — flagged when substituted — every blocked or
+smoke result from the panel — flagged when substituted — the security line (a source-only
+`confirmed: 0` is the evidence bar, not proven safety; say so), every blocked or
 skipped plan with its reason, and `flow.sh report` for the token ledger. The user decides:
 merge `flow/<run>/main` into their branch, or iterate. Record with `flow.sh gate B …`.
 
@@ -175,8 +186,9 @@ If `TaskCreate`/`TaskList` exist, mirror each plan as a task too.
 
 ## Principles that do not bend
 
-1. The brain is bundled (`references/planning.md`, `references/review.md`). Follow it; never
-   hunt for an external skill.
+1. The brain is bundled (`references/planning.md`, `references/review.md`), and so is the
+   security methodology (`references/security-audit/`, adapted by `references/security.md`).
+   Follow them; never hunt for an external skill.
 2. Human gates A and B are mandatory.
 3. Parallelize by **waves** derived from the DAG, with a barrier between them. Approved work
    is integrated before the next wave starts. State lives in `.flow/state.json`; the circuit

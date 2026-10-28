@@ -58,7 +58,7 @@ role share a cache hit (see `token-budget.md`).
 | `frontend-dev` | sonnet | UI, components | Changes API contracts unilaterally |
 | `data-dev` | sonnet/haiku | Schema, migrations, seeds | Business logic beyond the data layer |
 | `qa` | sonnet | Writes and runs tests, validates done criteria | Edits product code — tests only |
-| `security-reviewer` | opus | Reviews through a security lens | Rewrites; reports findings only |
+| `security-reviewer` | opus | Reviews through a security lens, per `security.md` | Rewrites; reports findings only |
 | `perf-reviewer` | sonnet | Reviews through a performance lens | Rewrites; reports findings only |
 | `docs` | haiku | Changelog, README, PR notes | Architecture decisions |
 
@@ -152,7 +152,10 @@ context loss, drives the panel, and enforces the retry ceiling.
       "branch": "flow/2026-07-31-chatbot/002", "integrated": false }
   ],
   "budget": { "by_phase": {}, "by_tier": {}, "by_plan": {}, "spawns": 0, "inline": 0, "unreported": [] },
-  "smoke": { "result": "substituted", "detail": "no Android SDK — ViewModel tests" }
+  "smoke": { "result": "substituted", "detail": "no Android SDK — ViewModel tests" },
+  "security": { "level": "scoped", "detail": "quick, 11/15 agents, source-only",
+                "findings": "/home/me/security-audit-skill/chatbot/run-1/findings.json",
+                "counts": { "confirmed": {}, "needs_validation": 3, "rejected": 1 } }
 }
 ```
 

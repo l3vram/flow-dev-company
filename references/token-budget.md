@@ -55,6 +55,8 @@ A strict return contract beats any speech style.
 | High-risk diff review (see `review.md` router) | `opus` | The cases where being wrong is expensive |
 | Non-trivial implementation, routine review layers | `sonnet` | Most execution lives here |
 | Boilerplate, docs, config, formatting, changelog | `haiku` | Specified work with no judgment left in it |
+| Security audit: reconnaissance, hunters, coverage critics | `sonnet` | Many agents; the verifiers catch their noise |
+| Security audit: candidate and record verifiers | `opus` | The precision gate — a false confirmation becomes a wasted fix plan |
 
 Never invert this. An expensive model executing a written plan is pure waste; a cheap model
 writing the plan poisons everything downstream.

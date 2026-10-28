@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# test-flow.sh — regression tests for flow.sh. Runs in a throwaway git repo; needs jq + git.
+# test-flow.sh — regression tests for flow.sh, plus the contract between references/security.md
+# and the vendored security-audit files. Runs in a throwaway git repo; needs jq + git.
 # Usage: scripts/test-flow.sh   (exit 0 = all pass)
 set -uo pipefail
 
 FLOW="$(cd "$(dirname "$0")" && pwd)/flow.sh"
+SEC="$(cd "$(dirname "$0")/../references/security-audit" && pwd)"
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 cd "$TMP"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
@@ -102,6 +104,49 @@ expect 1 "smoke needs a detail"      -- "$FLOW" smoke substituted
 expect 1 "bad smoke result rejected" -- "$FLOW" smoke skipped "x"
 "$FLOW" smoke substituted "no Android SDK; ran ViewModel tests" >/dev/null
 "$FLOW" panel 2>/dev/null | grep -q "smoke: substituted" && ok || bad "panel shows substituted smoke"
+
+# --- security level recorded, counts derived from findings.json --------------
+fresh s
+"$FLOW" report | grep -q "security: not recorded" && ok || bad "report shows a missing security result"
+expect 1 "security needs a detail"        -- "$FLOW" security scoped
+expect 1 "bad security level rejected"    -- "$FLOW" security partial "x"
+expect 1 "missing findings file rejected" -- "$FLOW" security scoped "quick" nope.json
+echo '{"verdict":"confirmed"}' > notarray.json
+expect 1 "non-array findings rejected"    -- "$FLOW" security scoped "quick" notarray.json
+cat > findings.json <<'JSON'
+[{"verdict":"confirmed","fingerprint":"a","severity":{"likelihood":"high","impact":"high","overall_severity":"high"}},
+ {"verdict":"confirmed","fingerprint":"b","severity":{"likelihood":"low","impact":"medium","overall_severity":"medium"}},
+ {"verdict":"needs_validation","fingerprint":"c"},
+ {"verdict":"rejected","fingerprint":"d"}]
+JSON
+expect 0 "security with findings" -- "$FLOW" security scoped "quick, 11/15 agents, source-only" findings.json
+eq "$(jq -c .security.counts .flow/state.json)" \
+   '{"confirmed":{"high":1,"medium":1},"needs_validation":1,"rejected":1}' "security counts derived"
+"$FLOW" report | grep -q "confirmed 2 (high 1, medium 1), needs_validation 1, rejected 1" && ok || bad "report shows security counts"
+"$FLOW" report | grep -q "1 confirmed critical/high" && ok || bad "report warns on confirmed high"
+"$FLOW" panel 2>/dev/null | grep -q "security: scoped" && ok || bad "panel shows security level"
+"$FLOW" security guidance "2 HIGH-risk diffs reviewed" >/dev/null
+eq "$(jq -c .security.counts .flow/state.json)" "null" "no counts without a findings file"
+"$FLOW" report | grep -q "critical/high" && bad "warning survives a re-record" || ok
+
+# --- vendored security-audit: what references/security.md points at ---------
+# A re-sync that renames one of these silently breaks the adapter; fail here instead.
+for f in SKILL.md ATTACK-CLASSES.md RECONNAISSANCE.md HUNTING.md VALIDATION-AND-REPORTING.md \
+         report-schema.json validate-findings.cjs validate-coverage-ledger.cjs LICENSE UPSTREAM.md; do
+  [ -f "$SEC/$f" ] && ok || bad "vendored file missing: $f"
+done
+for h in "## Core principles" "## Anti-patterns" "### Separate priority from certainty" "### Write isolation"; do
+  grep -qxF "$h" "$SEC/SKILL.md" && ok || bad "SKILL.md heading missing: $h"
+done
+for f in WEB-PROTOCOL-AND-AUTH DATA-ISOLATION-AND-LIFECYCLE SUPPLY-CHAIN-AND-RELEASE AI-AND-LLM \
+         CLIENT-SIDE CLOUD-AND-DEPLOYMENT PROTOCOLS-RPC-AND-MESSAGING \
+         RESOURCE-EXHAUSTION-AND-AVAILABILITY MEMORY-SAFETY-AND-BINARY DESKTOP-MOBILE-AND-LOCAL-IPC; do
+  grep -q "^## Core discipline" "$SEC/$f.md" && grep -q "^## Validation rules" "$SEC/$f.md" \
+    && ok || bad "$f.md lost its Core discipline / Validation rules sections"
+done
+for b in "Access control" "Business logic" "Cryptography and secrets" "Resource and file handling"; do
+  grep -qF "**$b**" "$SEC/ATTACK-CLASSES.md" && ok || bad "ATTACK-CLASSES.md block missing: $b"
+done
 
 # --- panel works without `column` -------------------------------------------
 mkdir -p nocol; for b in jq awk sed paste mktemp mv dirname cat; do ln -sf "$(command -v $b)" nocol/; done
