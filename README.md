@@ -1,5 +1,7 @@
 # flow-dev-company
 
+<img width="1600" height="900" alt="flow-dev-company-panel" src="https://github.com/user-attachments/assets/43781bd0-41b1-4361-bb04-784833636de6" />
+
 **End-to-end software development orchestrator for Claude Code.**
 One skill: give it a goal ("I want to build a chatbot"), it enriches the spec with
 senior-level questions, plans the work, and executes with a **fleet of parallel agents** —
