@@ -449,6 +449,9 @@ This ensures that findings are captured without turning issues into a second sou
 
 ### Handoff contract
 
+`flow.sh task new "<title>"` creates the next task directory from the bundled templates, and
+`flow.sh task check TASK-<n>` validates it.
+
 Every agent that touches a task leaves a handoff before handing off, with exactly one writer
 per file:
 

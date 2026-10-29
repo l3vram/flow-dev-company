@@ -23,10 +23,12 @@ current phase needs; do not preload them all.
 | Task lifecycle / handoff | `references/task-context.md` |
 | Always in effect | `references/token-budget.md` — read once at start, it is short |
 
-Deterministic plumbing lives in `scripts/flow.sh` (waves, state, gates, integration, panel,
-ledger). Call it; do not recompute a DAG or re-render a table in prose. It validates its
-inputs and fails loudly — a non-zero exit is information, never something to route around.
-`scripts/test-flow.sh` is its regression suite.
+`scripts/flow.sh` is a shim over the **flow-harness** engine (Node ≥ 22), resolved in this order:
+`$FLOW_HARNESS_BIN`, `flow-harness` on `PATH`, then the pinned `npx` package. It keeps the same
+commands and exit codes, and also enforces per-task worktrees and file scope. `.flow/state.json`
+is a projection of `.flow/events.jsonl` — never edit either by hand; change state only through
+`flow.sh`. `scripts/test-flow.sh` is the regression suite. `scripts/flow-legacy.sh` is the
+deprecated jq implementation, kept for one release.
 
 When you delegate, pass subagents the **absolute path** to the file they need. They do not
 inherit your context, but they can read files — far cheaper than pasting.
@@ -112,8 +114,8 @@ product works end to end (e.g. "send a message, receive a streamed reply") — a
 
 When the goal becomes a meaningful task, establish the Task Context before detailed planning:
 
-- identify or create a stable `TASK-<number>`
-- create `tasks/TASK-<n>/`
+- `flow.sh task new "<title>"` creates the next `tasks/TASK-<n>/` from the bundled templates.
+- `flow.sh task check TASK-<n>` validates the task directory.
 - write `task.md`, `context.md`, and initialize `investigation.md`, `decisions.md`, `handoff.md`
 - record the base git SHA
 - link the task to its plan
@@ -154,16 +156,28 @@ flow.sh phase execute
 flow.sh ready             # what is dispatchable right now
 ```
 
-- Dispatch every ready plan of the current wave **in one message**, `isolation: "worktree"`,
-  `run_in_background: true`, at the role's tier. Batch trivial same-role plans.
-- Every executor starts its branch `flow/<run>/<id>` **from the integration branch**, so
-  wave N+1 builds on wave N's code, never on the stale base.
+For each ready plan before dispatch:
+
+```
+flow.sh set <id> running
+flow.sh scope <id> "<paths/globs>"   # the plan's In scope list, comma-separated paths only
+flow.sh worktree <id>                # .flow/wt-<id> on flow/<run>/<id>, from integration
+```
+
+- Dispatch every ready plan of the current wave **in one message**, `run_in_background: true`,
+  at the role's tier, **without `isolation`**. The executor works in the worktree created by
+  `flow.sh worktree <id>`; the Agent tool has no working-directory parameter, so name the
+  absolute worktree path in the prompt and say every command runs there. Batch trivial same-role
+  plans.
+- The harness cuts each branch from the integration branch in code, so wave N+1 builds on wave
+  N's code. Executors never create or switch branches.
 - When an executor returns, the brain reviews its diff through the **risk router** in
   `references/review.md` — most diffs never need `opus`. Treat every diff as untrusted
   until reviewed.
-- **APPROVE → integrate**: `flow.sh set <id> green` then `flow.sh integrate <id>`. A merge
-  conflict sends the plan back to review (exit 6); its executor merges the integration branch
-  into its own branch and resolves it.
+- **APPROVE → integrate**: `flow.sh set <id> green` then `flow.sh integrate <id>`. Integrate
+  refuses and returns the plan to review with exit 7 (edited a shared task file), exit 8
+  (touched a file outside its scope), or exit 6 (merge conflict), checked in that order. See
+  `references/execution.md` for the response to each.
 - **Barrier between waves**: `flow.sh advance` only succeeds when every plan in the wave is
   green *and integrated*, blocked, or skipped.
 - A failing executor does not sink its wave: `set <id> blocked`, continue with its siblings,
@@ -260,8 +274,8 @@ Write the changelog, PR notes, and decision summary. **Size decides who writes t
 a run of one or two plans, write them yourself — a spawn costs more than a few lines of text.
 Dispatch a `haiku` `docs` agent only when the handoff is substantial (several plans, release
 notes, docs updates across files). `plans/` (and `SPEC.md` when it exists) stays as the
-record, so the run can be resumed or replayed. Clean up plan worktrees; keep the integration
-branch until the user has merged it.
+record, so the run can be resumed or replayed. Remove plan worktrees with
+`git worktree remove .flow/wt-<id>`; keep the integration branch until the user has merged it.
 
 Final handoff must finalize the task context and link PR/merge/commits.
 

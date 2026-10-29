@@ -9,6 +9,9 @@ Three properties make a plan executable by a weaker model:
 3. **Hard boundaries and escape hatches** — explicit out-of-scope list, and "STOP and report" conditions instead of letting the model improvise when reality doesn't match the plan.
 
 File naming: `plans/NNN-short-slug.md`, numbered in recommended execution order.
+The plan's **In scope** list is passed to `flow.sh scope <id>` at dispatch and `flow.sh integrate`
+refuses (exit 8) a branch that touches anything else — list repo-relative paths or globs, one per
+bullet, no prose.
 
 For meaningful work, each plan should also identify its task identity and task path:
 
